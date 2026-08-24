@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "user.omastream",
+  "name": "oma-stream",
+  "version": "0.1.0",
+  "author": "yaredow",
+  "description": "Go live on Twitch, YouTube, and X in a single click — simulcasts your screen and mic/desktop audio via gpu-screen-recorder.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "oma-stream",
+    "description": "One-click simulcast to Twitch, YouTube, and X",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
