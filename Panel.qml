@@ -354,6 +354,7 @@ Panel {
   Component.onCompleted: {
     mkdirProc.running = true
     refreshKeyPresence()
+    refreshScreenW()
     audioListProc.running = true
     monitorListProc.running = true
   }
@@ -396,12 +397,20 @@ Panel {
   }
 
   // Panel width scales with the screen: 48% of it, clamped to sane bounds,
-  // so the same UI fits a phone-sized window and a 4K display alike.
-  readonly property real targetPanelWidth: {
-    var s = Quickshell.screens
-    var sw = (s && s.length > 0 && s[0].width > 0) ? s[0].width : 1280
-    return Math.max(480, Math.min(sw * 0.48, 1100))
+  // so the same UI fits small laptop panels and a 4K display alike.
+  property real screenW: 1280
+
+  function refreshScreenW() {
+    var s = root.Screen ? root.Screen.screen : null
+    if (!s || !(s.width > 0)) {
+      var list = Quickshell.screens
+      if (list && list.length > 0) s = list[0]
+    }
+    if (s && s.width > 0) screenW = s.width
   }
+  onVisibleChanged: if (visible) refreshScreenW()
+
+  readonly property real targetPanelWidth: Math.max(480, Math.min(screenW * 0.48, 1100))
 
   readonly property real displayHz: {
     var s = Quickshell.screens
@@ -1013,6 +1022,7 @@ Panel {
         Column {
           id: streamPage
 visible: contentColumn.tabPage === 0
+          height: contentColumn.tabPageHeight
           width: parent.width
           spacing: Style.space(12)
 
@@ -1378,6 +1388,7 @@ visible: contentColumn.tabPage === 0
         Column {
           id: platformsPage
 visible: contentColumn.tabPage === 1
+          height: contentColumn.tabPageHeight
           width: parent.width
           spacing: Style.space(12)
 
@@ -1682,15 +1693,22 @@ visible: contentColumn.tabPage === 1
           }
         }
 
-        // Error / status line.
-        Text {
-          visible: root.lastError !== ""
+        // Error / status line — fixed slot so status messages never resize
+        // the panel.
+        Item {
           width: parent.width
-          text: root.lastError
-          color: root.urgent
-          font.family: root.contentFontFamily
-          font.pixelSize: Style.font.bodySmall
-          wrapMode: Text.WordWrap
+          height: Style.space(20)
+          clip: true
+
+          Text {
+            width: parent.width
+            visible: root.lastError !== ""
+            text: root.lastError
+            color: root.urgent
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.bodySmall
+            elide: Text.ElideRight
+          }
         }
 
         // The single action: starts or stops every enabled platform.
