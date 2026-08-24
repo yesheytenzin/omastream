@@ -357,6 +357,7 @@ Panel {
     refreshScreenW()
     audioListProc.running = true
     monitorListProc.running = true
+    refreshGsr()
   }
 
   Process {
@@ -481,6 +482,43 @@ Panel {
   Process {
     id: sigProc
     command: ["true"]
+  }
+
+  // ---- Dependency check -----------------------------------------------------
+  property bool gsrMissing: false
+
+  function refreshGsr() {
+    gsrProc.running = true
+  }
+
+  Process {
+    id: gsrProc
+    command: ["bash", "-c", "command -v gpu-screen-recorder >/dev/null && echo ok"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.gsrMissing = String(text || "").trim() !== "ok"
+    }
+  }
+
+  // Guided install via polkit (password prompt handled by the system agent).
+  Process {
+    id: gsrInstallProc
+    command: ["pkexec", "pacman", "-S", "--noconfirm", "--needed", "gpu-screen-recorder"]
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var t = String(text || "").trim()
+        if (t !== "") console.log("[omastream] install stderr:", t.split("\n").pop())
+      }
+    }
+    onExited: function(code) {
+      if (code === 0) {
+        root.gsrMissing = false
+        root.refreshGsr()
+      } else {
+        root.lastError = code === 126 ? "Install cancelled." : "Install failed (code " + code + ")."
+      }
+    }
   }
 
   // ---- Scenes / webcam overlay --------------------------------------------
@@ -794,6 +832,10 @@ Panel {
 
   function goLive() {
     root.lastError = ""
+    if (root.gsrMissing) {
+      root.lastError = "gpu-screen-recorder is required."
+      return
+    }
     var missing = []
     var ids = []
 
@@ -1071,6 +1113,32 @@ visible: contentColumn.tabPage === 0
         Column {
           width: parent.width
           spacing: Style.space(8)
+
+          Column {
+            visible: root.gsrMissing
+            width: parent.width
+            spacing: Style.space(8)
+
+            Row {
+              spacing: Style.space(8)
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "gpu-screen-recorder missing"
+                color: root.urgent
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+              }
+
+              Button {
+                text: "INSTALL"
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: gsrInstallProc.running = true
+              }
+            }
+          }
 
           PanelSectionHeader {
             text: "SCENE"
