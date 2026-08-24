@@ -34,6 +34,16 @@ Item {
 
   MediaDevices { id: mediaDevices }
 
+  // Native resolution of the active camera format (falls back to a common
+  // UVC default until the camera reports one). Drives the tile's aspect so
+  // there are never letterbox bars or padding around the feed.
+  readonly property var camResolution: {
+    var f = camera.cameraFormat
+    if (f && f.resolution && f.resolution.width > 0 && f.resolution.height > 0)
+      return f.resolution
+    return Qt.size(640, 480)
+  }
+
   function selectedDevice() {
     var want = String(cameraDeviceId || "")
     var list = mediaDevices.videoInputs || []
@@ -127,7 +137,7 @@ Item {
       width: root.scene === "camera" ? parent.width : parent.width * root.pipSizePct / 100
       height: root.scene === "camera"
         ? parent.height
-        : width * 3 / 4 // UVC cams are 4:3
+        : Math.max(1, width * root.camResolution.height / root.camResolution.width)
       x: root.scene === "camera"
         ? 0
         : Math.max(0, Math.min(parent.width - width, parent.width * root.pipXPct / 100))
@@ -137,16 +147,13 @@ Item {
 
       Rectangle {
         anchors.fill: parent
-        color: "#101010"
-        border.width: root.streaming ? 2 : 1
-        border.color: root.streaming ? Color.accent : root.dim
-        radius: Style.space(4)
+        color: "transparent"
         clip: true
 
         VideoOutput {
           id: camOut
-          anchors.fill: parent
-          fillMode: VideoOutput.PreserveAspectFit
+            anchors.fill: parent
+          fillMode: VideoOutput.PreserveAspectCrop
         }
 
         Text {
