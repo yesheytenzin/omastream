@@ -20,6 +20,8 @@ Item {
   property real pipYPct: 62
   property real pipSizePct: 22     // tile width, % of canvas width
   property string cameraDeviceId: ""
+  property string cameraSource: "device"
+  property string cameraUrl: ""
   property color fg: Color.foreground
   property color dim: Qt.darker(fg, 1.55)
   property string fontFamily: Style.font.family
@@ -77,6 +79,26 @@ Item {
   }
 
   // ---- Camera layer -------------------------------------------------------
+  MediaPlayer {
+    id: netPlayer
+    source: root.cameraSource === "url" ? root.cameraUrl : ""
+    videoOutput: netOut
+    onErrorOccurred: function(error, errorString) {
+      console.log("[omastream] network camera error: " + errorString)
+    }
+  }
+
+  // Pause/resume with the page, and never keep a socket open off-tab.
+  onVisibleChanged: refreshNetPlayback()
+  onCameraSourceChanged: refreshNetPlayback()
+  onCameraUrlChanged: refreshNetPlayback()
+  function refreshNetPlayback() {
+    if (root.visible && root.active && root.cameraSource === "url" && root.scene !== "screen" && root.cameraUrl !== "")
+      netPlayer.play()
+    else
+      netPlayer.stop()
+  }
+
   CaptureSession {
     id: camSession
     camera: Camera {
@@ -118,17 +140,7 @@ Item {
       font.letterSpacing: 2
     }
 
-    Text {
-      visible: root.scene !== "camera"
-      anchors.top: parent.top
-      anchors.right: parent.right
-      anchors.topMargin: Style.space(8)
-      anchors.rightMargin: Style.space(8)
-      text: "desktop refreshes every 2s"
-      color: root.dim
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.bodySmall
-    }
+    
 
     // Camera tile — full canvas in WEBCAM scene, draggable tile in PIP
     Item {
@@ -152,14 +164,22 @@ Item {
 
         VideoOutput {
           id: camOut
-            anchors.fill: parent
+          anchors.fill: parent
           fillMode: VideoOutput.PreserveAspectCrop
+          visible: root.cameraSource !== "url"
+        }
+
+        VideoOutput {
+          id: netOut
+          anchors.fill: parent
+          fillMode: VideoOutput.PreserveAspectFit
+          visible: root.cameraSource === "url"
         }
 
         Text {
-          visible: !camOut.videoVisible
+          visible: (root.cameraSource === "url" ? !netOut.videoVisible : !camOut.videoVisible)
           anchors.centerIn: parent
-          text: "CAM"
+          text: root.cameraSource === "url" ? "CONNECTING…" : "CAM"
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
@@ -182,6 +202,8 @@ Item {
         }
       }
     }
+
+
 
     // LIVE badge
     Rectangle {
