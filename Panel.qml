@@ -929,10 +929,12 @@ Panel {
 
         // All pages share the tallest page's height so the panel never
         // resizes itself when you switch tabs.
-        // Fixed per-screen page height: identical across tabs, scales with
-        // the device. Long pages scroll internally.
         readonly property real tabPageHeight: Math.max(
-          360, Math.min(root.targetPanelWidth * 0.62, 560))
+          streamPage.implicitHeight,
+          platformsPage.implicitHeight,
+          infoPage.implicitHeight,
+          previewPage.implicitHeight,
+          chatPage.implicitHeight)
 
         // Header: name on the left, status on the right.
         Item {
@@ -1008,22 +1010,11 @@ Panel {
         }
 
         // ---- Page 0: stream settings ------------------------------------
-        Item {
+        Column {
           id: streamPage
-          visible: contentColumn.tabPage === 0
-          height: contentColumn.tabPageHeight
+visible: contentColumn.tabPage === 0
           width: parent.width
-          clip: true
-
-          Flickable {
-            anchors.fill: parent
-            contentWidth: width
-            contentHeight: streamInner.implicitHeight
-            clip: true
-
-            Column {
-              id: streamInner
-              spacing: Style.space(12)
+          spacing: Style.space(12)
 
         // Scene selection: what the stream shows.
         Column {
@@ -1340,8 +1331,6 @@ Panel {
             }
           }
         }
-            }
-          }
         }
 
         // ---- Workspace privacy -------------------------------------------
@@ -1386,22 +1375,11 @@ Panel {
         }
 
         // ---- Page 1: platforms ------------------------------------------
-        Item {
+        Column {
           id: platformsPage
-          visible: contentColumn.tabPage === 1
-          height: contentColumn.tabPageHeight
+visible: contentColumn.tabPage === 1
           width: parent.width
-          clip: true
-
-          Flickable {
-            anchors.fill: parent
-            contentWidth: width
-            contentHeight: platformsInner.implicitHeight
-            clip: true
-
-            Column {
-              id: platformsInner
-              spacing:Style.space(12)
+          spacing: Style.space(12)
 
         // One block per platform.
         Repeater {
@@ -1547,8 +1525,6 @@ Panel {
             }
           }
         }
-            }
-          }
         }
 
           // ---- Page 2: stream info (title · thumbnail · schedule) ----------
