@@ -23,9 +23,14 @@ ingest endpoint at once. No OBS scene required.
   — hardware-encoded Wayland capture with audio mixing
 - `libsecret` (provides `secret-tool`; gnome-keyring is already running on Omarchy)
 - An RTMP ingest URL + stream key per platform:
-  - **Twitch**: `rtmp://live.twitch.tv/app/` + your key (Dashboard → Settings → Stream)
-  - **YouTube**: `rtmp://a.rtmp.youtube.com/live2/` + your key (youtube.com/live_dashboard)
-  - **X**: paste the full ingest URL from X Live Studio / Media Studio producer
+Defaults follow OBS Studio's service definitions:
+  - **Twitch**: anycast RTMPS ingest (`rtmps://ingest.global-contribute.live-video.net/app`) —
+    Twitch's CDN routes you to the nearest POP. Or click **PICK FASTEST INGEST**
+    in the panel to pull the recommended one from Twitch's ingest feed.
+  - **YouTube**: RTMPS primary `rtmps://a.rtmps.youtube.com:443/live2`
+    (backup: `rtmps://b.rtmps.youtube.com:443/live2?backup=1`)
+  - **X**: regional Producer ingest `rtmp://<region>.pscp.tv:80/x` —
+    regions: ca, or, va, br, fr, ie, de, au, in, jp, kr, sg
 
 ## Install
 
@@ -95,13 +100,19 @@ secret-tool clear  service omastream username youtube
 ## How it works
 
 At go-live, each enabled platform's key is fetched from the keyring, then
-each platform gets its own process:
+each platform gets its own process with that service's recommended encoder
+settings (keyframe interval, audio bitrate):
 
 ```
 gpu-screen-recorder -w screen -f 60 -a default_output \
-  -k h264 -ac aac -bm vbr -q medium \
-  -o rtmp://live.twitch.tv/app/<key>
+  -k h264 -c flv -ac aac -bm vbr -q medium \
+  -keyint 2 -ab 160 \
+  -o rtmps://ingest.global-contribute.live-video.net/app/<key>
 ```
+
+Per-service recommendations (from OBS's services.json):
+Twitch keyint=2s / audio≤160 · YouTube keyint=2s / audio≤160 ·
+X keyint=3s / audio≤128 / max 60fps.
 
 Stopping kills all of them. If one exits unexpectedly, the error surfaces in
 the panel while the others keep running.
