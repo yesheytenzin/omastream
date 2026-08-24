@@ -29,6 +29,7 @@ Panel {
   // Deliberately secret-free: only toggles, URLs, and capture settings.
   property var cfg: ({
     fps: 60,
+    resolution: "",
     quality: "medium",
     audio: "default_output",
     capture: "screen",
@@ -84,10 +85,16 @@ Panel {
     try { loaded = JSON.parse(raw) } catch (e) { return }
     if (!loaded || typeof loaded !== "object") return
     var next = Object.assign({}, cfg)
-    ;["fps", "quality", "audio", "capture", "scene", "cameraDevice",
+    ;["fps", "resolution", "quality", "audio", "capture", "scene", "cameraDevice",
       "pipXPct", "pipYPct", "pipSizePct"].forEach(function(k) {
       if (loaded[k] !== undefined) next[k] = loaded[k]
     })
+    // Migrate the numeric-bitrate experiment back to named presets.
+    if (!(next.quality === "low" || next.quality === "medium" || next.quality === "high")
+        && loaded.videoBitrateKbps !== undefined) {
+      var b = Number(loaded.videoBitrateKbps) || 6000
+      next.quality = b < 5000 ? "low" : (b <= 7000 ? "medium" : "high")
+    }
     Stream.platforms().forEach(function(p) {
       if (loaded[p.id] && typeof loaded[p.id] === "object") {
         // Any legacy plaintext "key" found here is ignored and dropped on
@@ -138,6 +145,13 @@ Panel {
   Component.onCompleted: {
     mkdirProc.running = true
     refreshKeyPresence()
+  }
+
+  readonly property real displayHz: {
+    var s = Quickshell.screens
+    if (s && s.length > 0 && s[0].refreshRate > 0)
+      return Math.round(s[0].refreshRate)
+    return 0
   }
 
   // ---- Scenes / webcam overlay --------------------------------------------
@@ -816,6 +830,25 @@ Panel {
               fontFamily: root.contentFontFamily
               onClicked: root.updateGlobal({ fps: 60 })
             }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.displayHz > 0
+                ? "· display: " + root.displayHz + " Hz"
+                : ""
+              color: root.dim
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+          }
+
+          Text {
+            width: parent.width
+            text: "Streams are capped at 60 fps — Twitch, YouTube and X all reject higher ingest rates."
+            color: root.dim
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.bodySmall
+            wrapMode: Text.WordWrap
           }
 
           Row {
@@ -824,7 +857,30 @@ Panel {
             Text {
               anchors.verticalCenter: parent.verticalCenter
               width: Style.space(64)
-              text: "QUALITY"
+              text: "OUTPUT"
+              color: root.dim
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+
+            Dropdown {
+              width: Style.space(220)
+              showLabel: false
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              options: Stream.resolutions().map(function(r) { return r.label })
+              value: Stream.resolutionLabel(cfg.resolution)
+              onChanged: function(label) { root.updateGlobal({ resolution: Stream.selectResolution(label) }) }
+            }
+          }
+
+          Row {
+            spacing: Style.space(6)
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(64)
+              text: "BITRATE"
               color: root.dim
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.bodySmall
@@ -836,12 +892,21 @@ Panel {
               Button {
                 required property string modelData
                 text: modelData
-                selected: String(root.cfg.quality) === modelData
+                selected: String(cfg.quality) === modelData
                 foreground: root.contentForeground
                 fontFamily: root.contentFontFamily
                 onClicked: root.updateGlobal({ quality: modelData })
               }
             }
+          }
+
+          Text {
+            width: parent.width
+            text: "CBR kbps: 4000 / 6000 / 8000 — clamped per service (Twitch ≤ 6000)"
+            color: root.dim
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.bodySmall
+            wrapMode: Text.WordWrap
           }
 
           TextField {
