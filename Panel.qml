@@ -1578,6 +1578,7 @@ visible: contentColumn.tabPage === 1
             spacing: Style.space(8)
 
             Monitor {
+              width: parent.width
               scene: root.scene
               streaming: root.live
               elapsedText: root.elapsedText
@@ -1603,6 +1604,7 @@ visible: contentColumn.tabPage === 1
           spacing: Style.space(8)
 
           Row {
+            width: parent.width
             height: parent.height
             spacing: Style.space(8)
 
@@ -1680,9 +1682,6 @@ visible: contentColumn.tabPage === 1
           }
         }
 
-        }
-
-
         // Error / status line.
         Text {
           visible: root.lastError !== ""
@@ -1711,3 +1710,5 @@ visible: contentColumn.tabPage === 1
       }
     }
   }
+
+}
