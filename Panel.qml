@@ -1,6 +1,8 @@
 import QtQuick
 import QtMultimedia
 import Quickshell
+import Quickshell.Hyprland
+import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -35,6 +37,13 @@ Panel {
     capture: "screen",
     scene: "screen",
     cameraDevice: "/dev/video0",
+    cameraSource: "device",
+    cameraUrl: "",
+    chatTwitchChannel: "",
+    chatYoutubeId: "",
+    startTime: "19:00",
+    autoStart: false,
+    hiddenWorkspaces: [1, 2],
     pipXPct: 72,
     pipYPct: 62,
     pipSizePct: 22,
@@ -86,7 +95,9 @@ Panel {
     if (!loaded || typeof loaded !== "object") return
     var next = Object.assign({}, cfg)
     ;["fps", "resolution", "quality", "audio", "capture", "scene", "cameraDevice",
-      "pipXPct", "pipYPct", "pipSizePct"].forEach(function(k) {
+      "cameraSource", "cameraUrl", "chatTwitchChannel", "chatYoutubeId",
+      "startTime", "autoStart",
+      "pipXPct", "pipYPct", "pipSizePct", "hiddenWorkspaces"].forEach(function(k) {
       if (loaded[k] !== undefined) next[k] = loaded[k]
     })
     // Migrate the numeric-bitrate experiment back to named presets.
@@ -132,6 +143,204 @@ Panel {
       'printf "%s" "$OMASTREAM_CFG" > "$OMASTREAM_CFG_PATH" && chmod 600 "$OMASTREAM_CFG_PATH"']
   }
 
+  // ---- Chat bridges -------------------------------------------------------
+  // Anonymous-read bridges: Twitch via IRC-over-WebSocket (justinfan),
+  // YouTube via the innertube live-chat endpoint. Each prints
+  // "user<TAB>message" lines; X has no public chat API.
+  property var twitchChatLines: []
+  property var ytChatLines: []
+
+  function appendChat(kind, line) {
+    if (!line || line.trim() === "") return
+    var parts = line.split("	")
+    var entry = { u: parts[0] || "", m: parts.slice(1).join("	") }
+    var prop = kind === "twitch" ? "twitchChatLines" : "ytChatLines"
+    var arr = root[prop].slice(0)
+    arr.push(entry)
+    if (arr.length > 60) arr = arr.slice(-60)
+    root[prop] = arr
+  }
+
+  readonly property string pyTwitch: [
+    "import socket,base64,os,sys,time,random",
+    "CRLF=chr(13)+chr(10)",
+    "def frame(op,p):",
+    " d=p.encode()",
+    " h=bytearray([0x80|op])",
+    " n=len(d)",
+    " if n<126: h.append(0x80|n)",
+    " else:",
+    "  h.append(0x80|126); h+=n.to_bytes(2,'big')",
+    " m=os.urandom(4)",
+    " h+=m",
+    " s.sendall(bytes(h)+bytes(b^m[i%4] for i,b in enumerate(d)))",
+    "while True:",
+    " try:",
+    "  chan=sys.argv[1].lower().lstrip('#')",
+    "  import ssl",
+    "  raw=socket.create_connection(('irc-ws.chat.twitch.tv',443),15)",
+    "  s=ssl.create_default_context().wrap_socket(raw,server_hostname='irc-ws.chat.twitch.tv')",
+    "  key=base64.b64encode(os.urandom(16)).decode()",
+    "  req='GET / HTTP/1.1'+CRLF+'Host: irc-ws.chat.twitch.tv'+CRLF+'Upgrade: websocket'+CRLF+'Connection: Upgrade'+CRLF+'Sec-WebSocket-Key: '+key+CRLF+'Sec-WebSocket-Version: 13'+CRLF+CRLF",
+    "  s.sendall(req.encode())",
+    "  buf=b''",
+    "  while bytes([13,10,13,10]) not in buf: buf+=s.recv(4096)",
+    "  def sendf(op,p): frame(op,p)",
+    "  nick='justinfan'+str(random.randint(10000,99999))",
+    "  sendf(1,'NICK '+nick)",
+    "  sendf(1,'JOIN #'+chan)",
+    "  while True:",
+    "   while len(buf)<2: buf+=s.recv(4096)",
+    "   op=buf[0]&0x0f; ln=buf[1]&0x7f; off=2",
+    "   if ln==126:",
+    "    while len(buf)<4: buf+=s.recv(4096)",
+    "    ln=int.from_bytes(buf[2:4],'big'); off=4",
+    "   elif ln==127:",
+    "    while len(buf)<10: buf+=s.recv(4096)",
+    "    ln=int.from_bytes(buf[2:10],'big'); off=10",
+    "   while len(buf)<off+ln: buf+=s.recv(4096)",
+    "   payload=buf[off:off+ln]; buf=buf[off+ln:]",
+    "   if op==0x9: sendf(0xA,payload.decode()); continue",
+    "   if op==0x8: raise RuntimeError('closed')",
+    "   for line in payload.decode('utf-8','replace').split(CRLF):",
+    "    if line.startswith('PING'): sendf(1,'PONG :tmi.twitch.tv'); continue",
+    "    if 'PRIVMSG' in line and ':' in line:",
+    "     user=line.split(':')[1].split('!')[0]",
+    "     msg=line.split(':',2)[2] if line.count(':')>1 else ''",
+    "     print(user+chr(9)+msg, flush=True)",
+    " except Exception as e:",
+    "  print('bridge: reconnecting ('+str(e)+')', flush=True)",
+    "  time.sleep(3)",
+  ].join(String.fromCharCode(10))
+
+  readonly property string pyYoutube: [
+    "import urllib.request,json,re,sys,time",
+    "vid=sys.argv[1]",
+    "q=chr(34)",
+    "hdr={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64)'}",
+    "def http(url,body=None):",
+    " data=json.dumps(body).encode() if body else None",
+    " req=urllib.request.Request(url,headers=hdr,data=data)",
+    " if body: req.add_header('Content-Type','application/json')",
+    " return urllib.request.urlopen(req,timeout=15).read().decode('utf-8','replace')",
+    "cont=''",
+    "html=http('https://www.youtube.com/live_chat?v='+vid+'&hl=en')",
+    "m=re.search('continuation'+q+':'+q+'([^'+q+']+)',html)",
+    "if m: cont=m.group(1)",
+    "if cont=='':",
+    " print('bridge: no live chat found for this video', flush=True)",
+    " sys.exit(0)",
+    "while True:",
+    " try:",
+    "  body={'context':{'client':{'clientName':'WEB','clientVersion':'2.20240702.01.00'}},'continuation':cont}",
+    "  data=json.loads(http('https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?prettyPrint=false',body))",
+    "  lr=data.get('contents',{}).get('liveChatRenderer',{})",
+    "  for a in lr.get('actions',[]):",
+    "   r=a.get('addChatItemAction',{}).get('item',{}).get('liveChatTextMessageRenderer')",
+    "   if not r: continue",
+    "   author=r.get('authorName',{}).get('simpleText','?')",
+    "   msg=''.join(x.get('text','') for x in r.get('message',{}).get('runs',[]))",
+    "   print(author+chr(9)+msg, flush=True)",
+    "  cs=data.get('continuationContents',{}).get('liveChatContinuation',{}).get('continuations',[])",
+    "  if cs: cont=cs[0].get('invalidationContinuationData',{}).get('continuation',cont)",
+    "  time.sleep(2)",
+    " except Exception as e:",
+    "  print('bridge: retrying ('+str(e)+')', flush=True)",
+    "  time.sleep(4)",
+  ].join(String.fromCharCode(10))
+  readonly property var chatColumns: {
+    var c = []
+    if (entryFor("twitch").enabled)
+      c.push({ key: "twitch", title: "TWITCH", lines: twitchChatLines })
+    if (entryFor("youtube").enabled)
+      c.push({ key: "youtube", title: "YOUTUBE", lines: ytChatLines })
+    if (entryFor("x").enabled)
+      c.push({ key: "x", title: "X", lines: [{ u: "", m: "X provides no public chat API." }] })
+    return c
+  }
+
+  property string activeTwitchArg: ""
+  property string activeYtArg: ""
+
+  function updateChatBridges() {
+    var want = contentColumn.tabPage === 3 && root.opened
+    var ch = String(cfg.chatTwitchChannel || "").trim()
+    var vid = String(cfg.chatYoutubeId || "").trim()
+
+    if (want && entryFor("twitch").enabled && ch !== "") {
+      if (activeTwitchArg !== ch || !twitchChatProc.running) {
+        activeTwitchArg = ch
+        twitchChatLines = []
+        twitchChatProc.command = ["python3", "-c", root.pyTwitch, ch]
+        twitchChatProc.running = true
+      }
+    } else if (twitchChatProc.running) { twitchChatProc.running = false; activeTwitchArg = "" }
+
+    if (want && entryFor("youtube").enabled && vid !== "") {
+      if (activeYtArg !== vid || !ytChatProc.running) {
+        activeYtArg = vid
+        ytChatLines = []
+        ytChatProc.command = ["python3", "-c", root.pyYoutube, vid]
+        ytChatProc.running = true
+      }
+    } else if (ytChatProc.running) { ytChatProc.running = false; activeYtArg = "" }
+  }
+
+  Process {
+    id: twitchChatProc
+    stdout: SplitParser { onRead: function(line) { root.appendChat("twitch", line) } }
+  }
+
+  Process {
+    id: ytChatProc
+    stdout: SplitParser { onRead: function(line) { root.appendChat("youtube", line) } }
+  }
+  // ---- Scheduled start ------------------------------------------------------
+  property string lastFiredDate: ""
+  property string schedCountdown: ""
+
+  Timer {
+    id: schedTimer
+    interval: 1000
+    repeat: true
+    running: String(cfg.autoStart) === "true"
+    triggeredOnStart: true
+    onTriggered: root.evaluateSchedule()
+  }
+
+  function evaluateSchedule() {
+    var now = new Date()
+    var today = Qt.formatDate(now, "yyyy-MM-dd")
+
+    if (String(cfg.autoStart) !== "true" || root.live || root.lastFiredDate === today) {
+      root.schedCountdown = ""
+      return
+    }
+
+    var parts = String(cfg.startTime).split(":")
+    if (parts.length !== 2 || !isFinite(parseInt(parts[0], 10)) || !isFinite(parseInt(parts[1], 10))) {
+      root.schedCountdown = "invalid time"
+      return
+    }
+    var target = new Date(now)
+    target.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0)
+
+    if (now >= target) {
+      root.lastFiredDate = today
+      root.schedCountdown = ""
+      goLive()
+      return
+    }
+
+    var s = Math.floor((target - now) / 1000)
+    var h = Math.floor(s / 3600); s -= h * 3600
+    var m = Math.floor(s / 60);   s -= m * 60
+    var pad = function(n) { return (n < 10 ? "0" : "") + n }
+    root.schedCountdown = "starts in " + (h > 0 ? pad(h) + ":" : "") + pad(m) + ":" + pad(s)
+  }
+
+
+
   FileView {
     id: configFile
     path: root.configPath
@@ -145,6 +354,53 @@ Panel {
   Component.onCompleted: {
     mkdirProc.running = true
     refreshKeyPresence()
+    audioListProc.running = true
+    monitorListProc.running = true
+  }
+
+  Process {
+    id: audioListProc
+    command: ["gpu-screen-recorder", "--list-audio-devices"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.audioDevices = root.parsePipeList(text)
+    }
+  }
+
+  Process {
+    id: monitorListProc
+    command: ["gpu-screen-recorder", "--list-monitors"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.monitorList = root.parsePipeList(text, function(id, res) { return id + " · " + res })
+    }
+  }
+
+  // Device lists queried from gpu-screen-recorder itself, so the dropdowns
+  // always match what gsr will actually accept.
+  property var audioDevices: []   // [{ id, label }]
+  property var monitorList: []    // [{ id, label }]
+
+  function parsePipeList(t, labelFromParts) {
+    var out = []
+    String(t || "").split("\n").forEach(function(line) {
+      line = line.trim()
+      if (line === "") return
+      var i = line.indexOf("|")
+      if (i > 0) {
+        var id = line.slice(0, i)
+        out.push({ id: id, label: labelFromParts ? labelFromParts(id, line.slice(i + 1)) : line.slice(i + 1) })
+      }
+    })
+    return out
+  }
+
+  // Panel width scales with the screen: 48% of it, clamped to sane bounds,
+  // so the same UI fits a phone-sized window and a 4K display alike.
+  readonly property real targetPanelWidth: {
+    var s = Quickshell.screens
+    var sw = (s && s.length > 0 && s[0].width > 0) ? s[0].width : 1280
+    return Math.max(480, Math.min(sw * 0.48, 1100))
   }
 
   readonly property real displayHz: {
@@ -152,6 +408,70 @@ Panel {
     if (s && s.length > 0 && s[0].refreshRate > 0)
       return Math.round(s[0].refreshRate)
     return 0
+  }
+
+  // ---- Workspace privacy ---------------------------------------------------
+  // Hidden workspaces freeze every stream encoder (SIGSTOP) while you are on
+  // one, and unfreeze when you leave — viewers see a frozen frame instead of
+  // whatever should stay private.
+  // Chips for workspaces 1..10 plus any named/dynamic ones Hyprland reports,
+  // so the list is never empty even before other workspaces are visited.
+  readonly property var hyprWorkspaces: {
+    var out = {}
+    var dyn = Hyprland.workspaces || []
+    for (var i = 0; i < dyn.length; i++)
+      if (dyn[i].id > 0) out[dyn[i].id] = dyn[i].name !== "" ? dyn[i].name : String(dyn[i].id)
+    for (var n = 1; n <= 10; n++)
+      if (!(n in out)) out[n] = String(n)
+    var keys = Object.keys(out).map(Number).sort(function(a, b) { return a - b })
+    return keys.map(function(k) { return { id: k, name: out[k] } })
+  }
+  readonly property int focusedWsId: Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1
+  property bool wsPaused: false
+
+  function isHiddenWs(id) {
+    var list = cfg.hiddenWorkspaces || []
+    for (var i = 0; i < list.length; i++)
+      if (Number(list[i]) === Number(id)) return true
+    return false
+  }
+
+  function toggleHiddenWs(id) {
+    var arr = (cfg.hiddenWorkspaces || []).slice().map(Number)
+    var k = arr.indexOf(Number(id))
+    if (k >= 0) arr.splice(k, 1); else arr.push(Number(id))
+    updateGlobal({ hiddenWorkspaces: arr })
+    evaluatePrivacy()
+  }
+
+  function setStreamsFrozen(freeze) {
+    sigProc.command = freeze
+      ? ["pkill", "-STOP", "-f", "gpu-screen-recorder"]
+      : ["pkill", "-CONT", "-f", "gpu-screen-recorder"]
+    sigProc.running = true
+  }
+
+  function evaluatePrivacy() {
+    if (!root.live) {
+      if (root.wsPaused) { root.wsPaused = false; root.lastError = ""; setStreamsFrozen(false) }
+      return
+    }
+    var hiddenNow = root.isHiddenWs(root.focusedWsId)
+    if (hiddenNow && !root.wsPaused) {
+      root.wsPaused = true
+      root.lastError = "PAUSED — hidden workspace"
+      setStreamsFrozen(true)
+    } else if (!hiddenNow && root.wsPaused) {
+      root.wsPaused = false
+      root.lastError = ""
+      setStreamsFrozen(false)
+    }
+  }
+  onFocusedWsIdChanged: evaluatePrivacy()
+
+  Process {
+    id: sigProc
+    command: ["true"]
   }
 
   // ---- Scenes / webcam overlay --------------------------------------------
@@ -176,8 +496,9 @@ Panel {
       "--autofit=" + size + "%",
       "--geometry=" + xp + "%+" + yp + "%",
       "--title=omastream-camera",
-      // av://v4l2: prefix — mpv won't autodetect a raw v4l2 device node.
-      "av://v4l2:" + String(cfg.cameraDevice || "/dev/video0")
+      String(cfg.cameraSource) === "url"
+        ? String(cfg.cameraUrl)   // phones / IP cams stream over http(s)/rtsp
+        : "av://v4l2:" + String(cfg.cameraDevice || "/dev/video0") // mpv won't autodetect a raw v4l2 node
     ]
   }
 
@@ -393,6 +714,7 @@ Panel {
     })
     if (skipped.length > 0)
       root.lastError = "Skipped (no key in keyring): " + skipped.join(", ")
+    evaluatePrivacy()
   }
 
   // ---- Live state ---------------------------------------------------------
@@ -442,6 +764,13 @@ Panel {
       return
     }
 
+    // gpu-screen-recorder can only capture local devices; a network camera
+    // source needs the PiP path (mpv window composited by screen capture).
+    if (root.scene === "camera" && String(cfg.cameraSource) === "url") {
+      root.lastError = "WEBCAM scene needs a local camera. For phones/IP cams use 🖥+🎥 PIP."
+      return
+    }
+
     root.goLiveIds = ids
 
     // PiP: raise the overlay window first and give it a moment to appear,
@@ -466,6 +795,7 @@ Panel {
   function stopAll() {
     if (!root.live) return
     root.stopping = true
+    if (root.wsPaused) { root.wsPaused = false; setStreamsFrozen(false) } // SIGTERM needs a running process to be delivered
     twitchProc.running = false
     youtubeProc.running = false
     xProc.running = false
@@ -551,6 +881,10 @@ Panel {
 
   function close() {
     root.setCenterHoverRevealSuppressed(false)
+    twitchChatProc.running = false
+    ytChatProc.running = false
+    activeTwitchArg = ""
+    activeYtArg = ""
     root.controller.hide()
   }
 
@@ -568,7 +902,7 @@ Panel {
     open: root.opened
     centerOnBar: true
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(1000))
+    contentWidth: panel.fittedContentWidth(root.targetPanelWidth)
     contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight)
 
     PanelKeyCatcher {
@@ -591,13 +925,14 @@ Panel {
         spacing: Style.space(12)
 
         property int tabPage: 0
+        onTabPageChanged: root.updateChatBridges()
 
         // All pages share the tallest page's height so the panel never
         // resizes itself when you switch tabs.
+        // Fixed per-screen page height: identical across tabs, scales with
+        // the device. Long pages scroll internally.
         readonly property real tabPageHeight: Math.max(
-          streamPage.implicitHeight,
-          platformsPage.implicitHeight,
-          previewPage.implicitHeight)
+          360, Math.min(root.targetPanelWidth * 0.62, 560))
 
         // Header: name on the left, status on the right.
         Item {
@@ -648,21 +983,47 @@ Panel {
           }
 
           Button {
-            text: "PREVIEW"
+            text: "SCHEDULE"
             selected: contentColumn.tabPage === 2
             foreground: root.contentForeground
             fontFamily: root.contentFontFamily
             onClicked: contentColumn.tabPage = 2
           }
+
+          Button {
+            text: "PREVIEW"
+            selected: contentColumn.tabPage === 3
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+            onClicked: contentColumn.tabPage = 3
+          }
+
+          Button {
+            text: "CHAT"
+            selected: contentColumn.tabPage === 4
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+            onClicked: contentColumn.tabPage = 4
+          }
         }
 
         // ---- Page 0: stream settings ------------------------------------
-        Column {
+        Item {
           id: streamPage
           visible: contentColumn.tabPage === 0
           height: contentColumn.tabPageHeight
           width: parent.width
-          spacing: Style.space(12)
+          clip: true
+
+          Flickable {
+            anchors.fill: parent
+            contentWidth: width
+            contentHeight: streamInner.implicitHeight
+            clip: true
+
+            Column {
+              id: streamInner
+              spacing: Style.space(12)
 
         // Scene selection: what the stream shows.
         Column {
@@ -701,9 +1062,48 @@ Panel {
             width: parent.width
             spacing: Style.space(8)
 
-            Dropdown {
+            Row {
+              visible: root.scene !== "screen"
+              spacing: Style.space(6)
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(64)
+                text: "SOURCE"
+                color: root.dim
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+              }
+
+              Button {
+                text: "WEBCAM / CAPTURE CARD"
+                selected: String(cfg.cameraSource) !== "url"
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.updateGlobal({ cameraSource: "device" })
+              }
+
+              Button {
+                text: "PHONE / IP CAM"
+                selected: String(cfg.cameraSource) === "url"
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.updateGlobal({ cameraSource: "url" })
+              }
+            }
+
+            TextField {
+              visible: root.scene !== "screen" && String(cfg.cameraSource) === "url"
               width: parent.width
-              label: visible && root.cameras.length > 0 ? "" : ""
+              foreground: root.contentForeground
+              text: String(cfg.cameraUrl)
+              placeholderText: "http://192.168.1.5:8080/video · rtsp://… (DroidCam, Iriun, IP Webcam)"
+              onEditingFinished: root.updateGlobal({ cameraUrl: text.trim() })
+            }
+
+            Dropdown {
+              visible: root.scene !== "screen" && String(cfg.cameraSource) !== "url"
+              width: parent.width
               showLabel: false
               foreground: root.contentForeground
               fontFamily: root.contentFontFamily
@@ -715,16 +1115,7 @@ Panel {
               onChanged: function(desc) { root.selectCamera(desc) }
             }
 
-            Text {
-              width: parent.width
-              text: root.cameras.length > 0
-                ? "Streams via " + String(cfg.cameraDevice)
-                : "No webcam detected — plug one in and reopen the panel."
-              color: root.dim
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-              wrapMode: Text.WordWrap
-            }
+            
 
             Row {
               visible: root.scene === "pip"
@@ -754,13 +1145,7 @@ Panel {
                 }
               }
 
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "Drag the camera on the monitor to place it."
-                color: root.dim
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-              }
+              
             }
 
             Row {
@@ -775,17 +1160,7 @@ Panel {
                 onClicked: root.toggleCamPreview()
               }
 
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                width: Style.space(300)
-                text: root.camPreviewOn
-                  ? "Drag the camera window anywhere — it streams as-is."
-                  : "Opens a draggable always-on-top camera window."
-                color: root.dim
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-                wrapMode: Text.WordWrap
-              }
+              
             }
           }
         }
@@ -842,16 +1217,10 @@ Panel {
             }
           }
 
-          Text {
-            width: parent.width
-            text: "Streams are capped at 60 fps — Twitch, YouTube and X all reject higher ingest rates."
-            color: root.dim
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.bodySmall
-            wrapMode: Text.WordWrap
-          }
+          
 
           Row {
+            width: parent.width
             spacing: Style.space(6)
 
             Text {
@@ -864,7 +1233,7 @@ Panel {
             }
 
             Dropdown {
-              width: Style.space(220)
+              width: parent.width - Style.space(72)
               showLabel: false
               foreground: root.contentForeground
               fontFamily: root.contentFontFamily
@@ -874,11 +1243,11 @@ Panel {
             }
           }
 
-          Row {
+          Flow {
+            width: parent.width
             spacing: Style.space(6)
 
             Text {
-              anchors.verticalCenter: parent.verticalCenter
               width: Style.space(64)
               text: "BITRATE"
               color: root.dim
@@ -900,40 +1269,139 @@ Panel {
             }
           }
 
-          Text {
-            width: parent.width
-            text: "CBR kbps: 4000 / 6000 / 8000 — clamped per service (Twitch ≤ 6000)"
-            color: root.dim
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.bodySmall
-            wrapMode: Text.WordWrap
-          }
+          
 
-          TextField {
-            width: parent.width
-            foreground: root.contentForeground
-            text: String(cfg.audio)
-            placeholderText: 'Audio source (gpu-screen-recorder, e.g. "default_output")'
-            onEditingFinished: root.updateGlobal({ audio: text.trim() })
-          }
+            Dropdown {
+              width: parent.width
+              showLabel: false
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              options: {
+                var opts = audioDevices.map(function(d) { return d.label })
+                if (audioDevices.length === 0 && String(cfg.audio) !== "") opts.push(String(cfg.audio))
+                return opts
+              }
+              value: {
+                for (var i = 0; i < audioDevices.length; i++)
+                  if (audioDevices[i].id === String(cfg.audio)) return audioDevices[i].label
+                return String(cfg.audio)
+              }
+              enabled: audioDevices.length > 0
+              onChanged: function(label) {
+                for (var i = 0; i < audioDevices.length; i++)
+                  if (audioDevices[i].label === label) { root.updateGlobal({ audio: audioDevices[i].id }); return }
+              }
+            }
 
-          TextField {
-            width: parent.width
-            foreground: root.contentForeground
-            text: String(cfg.capture)
-            placeholderText: 'Capture target ("screen", monitor name, "portal", …)'
-            onEditingFinished: root.updateGlobal({ capture: text.trim() })
+          Row {
+            spacing: Style.space(6)
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(64)
+              text: "SOURCE"
+              color: root.dim
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+
+            Dropdown {
+              width: Style.space(220)
+              showLabel: false
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              options: {
+                var opts = ["All screens"]
+                monitorList.forEach(function(m) { opts.push(m.label) })
+                opts.push("Portal (choose on stream)")
+                opts.push("Focused window")
+                if (!["screen", "portal", "focused"].includes(String(cfg.capture))
+                    && monitorList.every(function(m) { return m.id !== String(cfg.capture) }))
+                  opts.push(String(cfg.capture)) // preserved custom value
+                return opts
+              }
+              value: {
+                var c = String(cfg.capture)
+                if (c === "screen") return "All screens"
+                if (c === "portal") return "Portal (choose on stream)"
+                if (c === "focused") return "Focused window"
+                for (var i = 0; i < monitorList.length; i++)
+                  if (monitorList[i].id === c) return monitorList[i].label
+                return c
+              }
+              onChanged: function(label) {
+                if (label === "All screens") { root.updateGlobal({ capture: "screen" }); return }
+                if (label === "Portal (choose on stream)") { root.updateGlobal({ capture: "portal" }); return }
+                if (label === "Focused window") { root.updateGlobal({ capture: "focused" }); return }
+                for (var i = 0; i < monitorList.length; i++)
+                  if (monitorList[i].label === label) { root.updateGlobal({ capture: monitorList[i].id }); return }
+                root.updateGlobal({ capture: label })
+              }
+            }
           }
         }
+            }
+          }
+        }
+
+        // ---- Workspace privacy -------------------------------------------
+        Column {
+          visible: contentColumn.tabPage === 0
+          width: parent.width
+          spacing: Style.space(8)
+
+          PanelSectionHeader {
+            text: "HIDDEN WORKSPACES"
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+          }
+
+          Flow {
+            width: parent.width
+            spacing: Style.space(6)
+
+            Repeater {
+              model: root.hyprWorkspaces
+
+              Button {
+                required property var modelData
+                readonly property int wsId: modelData.id
+                readonly property string label: modelData.name !== "" ? modelData.name : String(wsId)
+                text: label
+                selected: root.isHiddenWs(wsId)
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.toggleHiddenWs(wsId)
+              }
+            }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.wsPaused ? "● PAUSED" : ""
+              color: root.liveColor
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+          }
         }
 
         // ---- Page 1: platforms ------------------------------------------
-        Column {
+        Item {
           id: platformsPage
           visible: contentColumn.tabPage === 1
           height: contentColumn.tabPageHeight
           width: parent.width
-          spacing: Style.space(12)
+          clip: true
+
+          Flickable {
+            anchors.fill: parent
+            contentWidth: width
+            contentHeight: platformsInner.implicitHeight
+            clip: true
+
+            Column {
+              id: platformsInner
+              spacing:Style.space(12)
 
         // One block per platform.
         Repeater {
@@ -1027,6 +1495,24 @@ Panel {
             }
 
             TextField {
+              visible: platformBlock.modelData.id === "twitch"
+              width: parent.width
+              foreground: root.contentForeground
+              text: String(cfg.chatTwitchChannel || "")
+              placeholderText: "Channel name — enables TWITCH chat"
+              onEditingFinished: root.updateGlobal({ chatTwitchChannel: text.trim() })
+            }
+
+            TextField {
+              visible: platformBlock.modelData.id === "youtube"
+              width: parent.width
+              foreground: root.contentForeground
+              text: String(cfg.chatYoutubeId || "")
+              placeholderText: "Video ID (watch?v=…) — enables YOUTUBE chat"
+              onEditingFinished: root.updateGlobal({ chatYoutubeId: text.trim() })
+            }
+
+            TextField {
               id: keyField
               width: parent.width
               foreground: root.contentForeground
@@ -1061,20 +1547,61 @@ Panel {
             }
           }
         }
+            }
+          }
         }
 
+          // ---- Page 2: stream info (title · thumbnail · schedule) ----------
+        Column {
+          id: infoPage
+          visible: contentColumn.tabPage === 2
+          height: contentColumn.tabPageHeight
+          width: parent.width
+          spacing: Style.space(12)
 
+          PanelSectionHeader {
+            text: "SCHEDULED START"
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+          }
 
-          // ---- Page 2: program monitor -------------------------------------
+          Row {
+            spacing: Style.space(8)
+
+            TextField {
+              width: Style.space(90)
+              foreground: root.contentForeground
+              text: String(cfg.startTime)
+              placeholderText: "HH:MM"
+              onEditingFinished: root.updateGlobal({ startTime: text.trim() })
+            }
+
+            ToggleSwitch {
+              anchors.verticalCenter: parent.verticalCenter
+              checked: String(cfg.autoStart) === "true"
+              foreground: root.contentForeground
+              onToggled: root.updateGlobal({ autoStart: String(cfg.autoStart) === "true" ? false : true })
+            }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.schedCountdown
+              color: root.dim
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+          }
+        }
+
+        // ---- Page 2: program monitor -------------------------------------
           Column {
             id: previewPage
-            visible: contentColumn.tabPage === 2
+            visible: contentColumn.tabPage === 3
             height: contentColumn.tabPageHeight
             width: parent.width
             spacing: Style.space(8)
 
             Monitor {
-              width: parent.width
               scene: root.scene
               streaming: root.live
               elapsedText: root.elapsedText
@@ -1082,22 +1609,103 @@ Panel {
               pipYPct: Number(cfg.pipYPct) || 62
               pipSizePct: Number(cfg.pipSizePct) || 22
               cameraDeviceId: String(cfg.cameraDevice || "")
+            cameraSource: String(cfg.cameraSource) || "device"
+            cameraUrl: String(cfg.cameraUrl) || ""
               fg: root.contentForeground
               fontFamily: root.contentFontFamily
               onPlacementChanged: function(xp, yp) { root.updateGlobal({ pipXPct: xp, pipYPct: yp }) }
             }
 
-            Text {
-              width: parent.width
-              text: root.scene === "pip"
-                ? "Drag the camera tile to place it · size presets in the STREAM tab"
-                : "Switch to 🖥+🎥 PIP to arrange your camera here."
-              color: root.dim
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-              wrapMode: Text.WordWrap
+            
+          }
+        // ---- Page 3: chat (one column per enabled platform) --------------
+        Column {
+          id: chatPage
+          visible: contentColumn.tabPage === 4
+          height: contentColumn.tabPageHeight
+          width: parent.width
+          spacing: Style.space(8)
+
+          Row {
+            height: parent.height
+            spacing: Style.space(8)
+
+            Repeater {
+              model: root.chatColumns
+
+              Rectangle {
+                required property var modelData
+                readonly property int colCount: root.chatColumns.length
+                width: Math.floor((parent.width - Style.space(8) * (colCount - 1)) / colCount)
+                height: parent.height
+                color: "#000000"
+                radius: Style.space(4)
+                clip: true
+
+                Column {
+                  anchors.fill: parent
+                  anchors.margins: Style.space(6)
+                  spacing: Style.space(6)
+
+                  Text {
+                    text: modelData.title + " · " + (modelData.lines.length || "")
+                    color: root.dim
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.letterSpacing: 1
+                  }
+
+                  Flickable {
+                    id: chatScroll
+                    width: parent.width
+                    height: parent.height - headerLabel.height - Style.space(12)
+                    contentWidth: width
+                    contentHeight: msgList.implicitHeight
+                    clip: true
+
+                    property bool pinned: true
+                    onContentHeightChanged: if (pinned) contentY = Math.max(0, contentHeight - height)
+                    onDragEnded: pinned = (contentY >= contentHeight - height - Style.space(24))
+
+                    Column {
+                      id: msgList
+                      width: chatScroll.width
+                      spacing: Style.space(3)
+
+                      Repeater {
+                        model: modelData.lines
+
+                        delegate: Text {
+                          required property var modelData
+                          width: chatScroll.width
+                          wrapMode: Text.WrapAnywhere
+                          color: root.contentForeground
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.bodySmall
+                          text: modelData.u !== "" ? modelData.u + ": " + modelData.m : modelData.m
+                        }
+                      }
+
+                      Item { width: 1; height: 1 }
+                    }
+                  }
+
+                  Text {
+                    id: headerLabel
+                    visible: modelData.lines.length === 0
+                    text: modelData.key === "x" ? "no public chat API" : "waiting for messages…"
+                    color: root.dim
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.bodySmall
+                  }
+                }
+              }
             }
           }
+        }
+
+        }
+
 
         // Error / status line.
         Text {
@@ -1114,6 +1722,7 @@ Panel {
         Button {
           width: parent.width
           leftAlign: true
+          bordered: true
           text: root.live ? "■ STOP STREAMING" : "● GO LIVE — ALL PLATFORMS"
           selected: root.live
           foreground: root.contentForeground
@@ -1122,14 +1731,7 @@ Panel {
           onClicked: root.toggleStream()
         }
 
-        Text {
-          width: parent.width
-          text: "Keys: Secret Service keyring (service=omastream) · Streams: gpu-screen-recorder"
-          color: root.dim
-          font.family: root.contentFontFamily
-          font.pixelSize: Style.font.bodySmall
-        }
+        
       }
     }
   }
-}
