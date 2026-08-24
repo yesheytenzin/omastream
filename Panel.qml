@@ -556,6 +556,7 @@ Panel {
   }
 
   function storeKey(id, secret) {
+    console.log("[omastream] storeKey", id, "len=" + secret.length)
     if (secret === "") {
       // Empty field committed means "forget this key".
       keyClear.command = ["secret-tool", "clear", "service", "omastream", "username", id]
@@ -564,25 +565,65 @@ Panel {
       return
     }
     keyStore.targetId = id
-    keyStore.secret = secret
+    keyStore.payload = secret
     keyStore.command = [
       "secret-tool", "store", "--label=oma-stream " + id,
       "service", "omastream", "username", id
     ]
     keyStore.running = true
+    storeWatchdog.restart()
     var p2 = Object.assign({}, keyPresent); p2[id] = true; keyPresent = p2
   }
 
   Process {
     id: keyStore
     property string targetId: ""
-    property string secret: ""
-    stdinEnabled: true
-    onStarted: {
-      write(secret + "\n")
-      secret = ""
+    property string payload: ""
+    environment: ({
+      OMASTREAM_KEY: payload,
+      OMASTREAM_ID: targetId
+    })
+    // Secret travels via env into a 600-perm temp file; store reads stdin
+    // FROM THAT FILE — quickshell leaks its own stdin pipe into children,
+    // which made pipe-based feeding block forever.
+    command: ["bash", "-c",
+      '{ '
+      + 'echo "=== omastore $(date) ==="; '
+      + 'echo "PATH=$PATH"; '
+      + 'echo "ID=$OMASTREAM_ID keylen=${#OMASTREAM_KEY}"; '
+      + 'printf "%s" "$OMASTREAM_KEY" > /tmp/.omastream-key && echo "keyfile written"; '
+      + 'ls -la /tmp/.omastream-key; '
+      + 'secret-tool clear service omastream username "$OMASTREAM_ID"; echo "clear_rc=$?"; '
+      + '/usr/bin/secret-tool store --label="oma-stream $OMASTREAM_ID" service omastream username "$OMASTREAM_ID" < /tmp/.omastream-key; echo "store_rc=$?"; '
+      + 'rm -f /tmp/.omastream-key; '
+      + '} > /tmp/.omastream-store.log 2>&1; exit 0']
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var t = String(text || "").trim()
+        if (t !== "") console.log("[omastream] store stderr:", t)
+      }
+    }
+    onExited: function(code) {
+      console.log("[omastream] store exit:", code)
+      storeWatchdog.stop()
+      if (code !== 0) root.lastError = "Key storage failed — is the login keyring unlocked?"
     }
   }
+
+  // If the store ever wedges (locked collection, prompt lost), fail loudly
+  // instead of hanging forever.
+  Timer {
+    id: storeWatchdog
+    interval: 10000
+    onTriggered: {
+      if (keyStore.running) {
+        keyStore.running = false
+        root.lastError = "Key storage timed out."
+      }
+    }
+  }
+
 
   Process {
     id: keyClear
@@ -1501,37 +1542,37 @@ visible: contentColumn.tabPage === 1
               onEditingFinished: root.updateGlobal({ chatYoutubeId: text.trim() })
             }
 
-            TextField {
-              id: keyField
+            Row {
               width: parent.width
-              foreground: root.contentForeground
-              password: true
-              // Programmatic clears (after commit) must not count as edits.
-              property bool clearing: false
-              // Auto-store shortly after typing stops — no Enter required.
-              Timer {
-                id: storeDebounce
-                interval: 700
-                onTriggered: root.storeKey(platformBlock.modelData.id, keyField.text.trim())
+              spacing: Style.space(6)
+
+              TextField {
+                id: keyField
+                width: parent.width - Style.space(76)
+                foreground: root.contentForeground
+                password: true
+                // Programmatic clears must not count as edits.
+                property bool clearing: false
+                placeholderText: platformBlock.hasKey
+                  ? "Stored in keyring — paste to replace"
+                  : "Stream key"
+                onTextChanged: if (!clearing) platformBlock.keyDirty = true
               }
-              placeholderText: platformBlock.hasKey
-                ? "●●●●●● stored in system keyring — type to replace, clear to delete"
-                : "Paste stream key → stored in system keyring (not on disk)"
-              onTextChanged: {
-                if (!clearing) {
-                  platformBlock.keyDirty = true
-                  storeDebounce.restart()
+
+              Button {
+                text: "SAVE KEY"
+                selected: platformBlock.keyDirty
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: {
+                  var secret = keyField.text.trim()
+                  platformBlock.keyDirty = false
+                  keyField.clearing = true
+                  keyField.text = ""
+                  keyField.clearing = false
+                  root.storeKey(platformBlock.modelData.id, secret)
                 }
-              }
-              onEditingFinished: {
-                if (!platformBlock.keyDirty) return
-                storeDebounce.stop()
-                var secret = text.trim()
-                platformBlock.keyDirty = false
-                clearing = true
-                text = ""
-                clearing = false
-                root.storeKey(platformBlock.modelData.id, secret)
               }
             }
           }

@@ -125,14 +125,18 @@ function bestTwitchIngest(raw) {
   return { name: String(best.name || ""), url: url }
 }
 
-// Pick the most informative line from a stream's stderr: prefer anything
-// that looks like an actual error, fall back to the first line.
+// Pick the most informative line from a stream's stderr: prefer real
+// errors, skipping benign ffmpeg/gsr chatter (SAR notices, Qavg stats).
 function pickErrorLine(t) {
   var lines = String(t || "").split("\n")
-  for (var i = 0; i < lines.length; i++)
-    if (/error|failed|denied|rejected|invalid|could not/i.test(lines[i]))
-      return lines[i]
-  return lines[0] || ""
+  var first = ""
+  for (var i = 0; i < lines.length; i++) {
+    var l = lines[i]
+    if (l === "" || first === "") { if (l !== "") first = l }
+    if (/ignoring invalid|qavg|kms server info|gsr info/i.test(l)) continue
+    if (/error|failed|denied|rejected|could not/i.test(l)) return l
+  }
+  return ""
 }
 
 function formatElapsed(ms) {
