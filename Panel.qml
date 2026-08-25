@@ -711,36 +711,9 @@ Panel {
     }
   }
 
-  // Generic per-platform lookup process: doubles as a presence check
-  // (mode "check") and as the fetch phase of go-live (mode "launch").
-  component KeyLookup: Process {
-    id: lookup
-    required property string platformId
-    property string mode: ""
-
-    function startLookup(m) {
-      mode = m
-      command = ["secret-tool", "lookup", "service", "omastream", "username", platformId]
-      running = true
-    }
-
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.lookupText(lookup.platformId, lookup.mode, String(text || "").trim())
-    }
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var t = String(text || "").trim()
-        if (t !== "") root.lookupError(lookup.platformId, t)
-      }
-    }
-    onExited: function(code) { root.lookupDone(lookup.platformId, lookup.mode, code) }
-  }
-
-  KeyLookup { id: twitchLookup;  platformId: "twitch" }
-  KeyLookup { id: youtubeLookup; platformId: "youtube" }
-  KeyLookup { id: xLookup;       platformId: "x" }
+  KeyLookup { id: twitchLookup;  platformId: "twitch";  ctrl: root }
+  KeyLookup { id: youtubeLookup; platformId: "youtube"; ctrl: root }
+  KeyLookup { id: xLookup;       platformId: "x";       ctrl: root }
 
   // Results land here during both modes; see lookupText/lookupDone.
   property var fetchedKeys: ({})
@@ -945,29 +918,9 @@ Panel {
   // so the generic exit path defers to whatever stderr landed).
   property string lastStreamStderr: ""
 
-  component StreamProcess: Process {
-    id: streamProc
-    required property string platformId
-    stdout: StdioCollector {}
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var t = String(text || "").trim()
-        if (t !== "") {
-          console.log("[omastream] " + streamProc.platformId + " stderr:\n" + t)
-          root.lastStreamStderr = Stream.pickErrorLine(t)
-        }
-      }
-    }
-    onExited: function(code) {
-      console.log("[omastream] " + platformId + " exited code=" + code)
-      root.handleExit(code)
-    }
-  }
-
-  StreamProcess { id: twitchProc;  platformId: "twitch" }
-  StreamProcess { id: youtubeProc; platformId: "youtube" }
-  StreamProcess { id: xProc;       platformId: "x" }
+  StreamProcess { id: twitchProc;  platformId: "twitch";  ctrl: root }
+  StreamProcess { id: youtubeProc; platformId: "youtube"; ctrl: root }
+  StreamProcess { id: xProc;       platformId: "x";       ctrl: root }
 
   // ---- Chrome -------------------------------------------------------------
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
