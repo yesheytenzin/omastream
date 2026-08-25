@@ -7,6 +7,8 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "Stream.js" as Stream
+import "sections"
+import "processes"
 
 // oma-stream control panel: per-platform ingest config, capture settings,
 // and one button that starts or stops every enabled stream at once.
@@ -923,6 +925,10 @@ Panel {
   StreamProcess { id: xProc;       platformId: "x";       ctrl: root }
 
   // ---- Chrome -------------------------------------------------------------
+  // Accessors used by extracted section components (sections/*.qml).
+  function installGsr() { gsrInstallProc.running = true }
+  readonly property bool camGrabRunning: camGrabProc.running
+
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property color dim: Qt.darker(contentForeground, 1.55)
@@ -1073,735 +1079,61 @@ Panel {
         }
 
         // ---- Page 0: stream settings ------------------------------------
-        Column {
+        StreamSettingsPage {
           id: streamPage
-visible: contentColumn.tabPage === 0
+          visible: contentColumn.tabPage === 0
           height: contentColumn.tabPageHeight
           width: parent.width
-          spacing: Style.space(12)
-
-        // Scene selection: what the stream shows.
-        Column {
-          width: parent.width
-          spacing: Style.space(8)
-
-          Column {
-            visible: root.gsrMissing
-            width: parent.width
-            spacing: Style.space(8)
-
-            Row {
-              spacing: Style.space(8)
-
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "gpu-screen-recorder missing"
-                color: root.urgent
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-              }
-
-              Button {
-                text: "INSTALL"
-                bordered: true
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: gsrInstallProc.running = true
-              }
-            }
-          }
-
-          PanelSectionHeader {
-            text: "SCENE"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-          }
-
-          Row {
-            spacing: Style.space(6)
-
-            Repeater {
-              model: [
-                { id: "screen", label: "🖥 SCREEN" },
-                { id: "pip",    label: "🖥+🎥 PIP" },
-                { id: "camera", label: "🎥 WEBCAM" }
-              ]
-
-              Button {
-                required property var modelData
-                text: modelData.label
-                selected: root.scene === modelData.id
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.updateGlobal({ scene: modelData.id })
-              }
-            }
-          }
-
-          Column {
-            visible: root.scene !== "screen"
-            width: parent.width
-            spacing: Style.space(8)
-
-            Row {
-              visible: root.scene !== "screen"
-              spacing: Style.space(6)
-
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                width: Style.space(64)
-                text: "SOURCE"
-                color: root.dim
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-              }
-
-              Button {
-                text: "WEBCAM / CAPTURE CARD"
-                selected: String(cfg.cameraSource) !== "url"
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.updateGlobal({ cameraSource: "device" })
-              }
-
-              Button {
-                text: "PHONE / IP CAM"
-                selected: String(cfg.cameraSource) === "url"
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.updateGlobal({ cameraSource: "url" })
-              }
-            }
-
-            TextField {
-              visible: root.scene !== "screen" && String(cfg.cameraSource) === "url"
-              width: parent.width
-              foreground: root.contentForeground
-              text: String(cfg.cameraUrl)
-              placeholderText: "http://192.168.1.5:8080/video · rtsp://… (DroidCam, Iriun, IP Webcam)"
-              onEditingFinished: root.updateGlobal({ cameraUrl: text.trim() })
-            }
-
-            Dropdown {
-              visible: root.scene !== "screen" && String(cfg.cameraSource) !== "url"
-              width: parent.width
-              showLabel: false
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              options: root.cameras.length > 0
-                ? root.cameras.map(function(d) { return String(d.description) })
-                : ["No cameras detected"]
-              value: root.cameraName !== "" ? root.cameraName : (root.cameras.length > 0 ? "Select camera" : "No cameras detected")
-              enabled: root.cameras.length > 0
-              onChanged: function(desc) { root.selectCamera(desc) }
-            }
-
-            
-
-            Row {
-              visible: root.scene === "pip"
-              spacing: Style.space(6)
-
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                width: Style.space(64)
-                text: "CAM SIZE"
-                color: root.dim
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-              }
-
-              Repeater {
-                model: [
-                  { v: 15, label: "S" }, { v: 22, label: "M" }, { v: 30, label: "L" }
-                ]
-
-                Button {
-                  required property var modelData
-                  text: modelData.label
-                  selected: Number(cfg.pipSizePct) === modelData.v
-                  foreground: root.contentForeground
-                  fontFamily: root.contentFontFamily
-                  onClicked: root.updateGlobal({ pipSizePct: modelData.v })
-                }
-              }
-
-              
-            }
-
-            Row {
-              visible: root.scene === "pip"
-              spacing: Style.space(10)
-
-              Button {
-                text: root.camPreviewOn ? "■ CLOSE CAMERA PREVIEW" : "◎ PREVIEW & ARRANGE CAMERA"
-                selected: root.camPreviewOn
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.toggleCamPreview()
-              }
-
-              
-            }
-          }
+          ctrl: root
         }
 
-        PanelSeparator { foreground: root.contentForeground }
-
-        // Capture settings.
-        Column {
-          width: parent.width
-          spacing: Style.space(8)
-
-          PanelSectionHeader {
-            text: "CAPTURE"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-          }
-
-          Row {
-            spacing: Style.space(6)
-
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              width: Style.space(64)
-              text: "FPS"
-              color: root.dim
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-
-            Button {
-              text: "30"
-              selected: Number(root.cfg.fps) === 30
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.updateGlobal({ fps: 30 })
-            }
-
-            Button {
-              text: "60"
-              selected: Number(root.cfg.fps) === 60
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.updateGlobal({ fps: 60 })
-            }
-
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              text: root.displayHz > 0
-                ? "· display: " + root.displayHz + " Hz"
-                : ""
-              color: root.dim
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-          }
-
-          
-
-          Row {
-            width: parent.width
-            spacing: Style.space(6)
-
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              width: Style.space(64)
-              text: "OUTPUT"
-              color: root.dim
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-
-            Dropdown {
-              width: parent.width - Style.space(72)
-              showLabel: false
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              options: Stream.resolutions().map(function(r) { return r.label })
-              value: Stream.resolutionLabel(cfg.resolution)
-              onChanged: function(label) { root.updateGlobal({ resolution: Stream.selectResolution(label) }) }
-            }
-          }
-
-          Flow {
-            width: parent.width
-            spacing: Style.space(6)
-
-            Text {
-              width: Style.space(64)
-              text: "BITRATE"
-              color: root.dim
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-
-            Repeater {
-              model: ["low", "medium", "high"]
-
-              Button {
-                required property string modelData
-                text: modelData
-                selected: String(cfg.quality) === modelData
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.updateGlobal({ quality: modelData })
-              }
-            }
-          }
-
-          
-
-            Dropdown {
-              width: parent.width
-              showLabel: false
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              options: {
-                var opts = audioDevices.map(function(d) { return d.label })
-                if (audioDevices.length === 0 && String(cfg.audio) !== "") opts.push(String(cfg.audio))
-                return opts
-              }
-              value: {
-                for (var i = 0; i < audioDevices.length; i++)
-                  if (audioDevices[i].id === String(cfg.audio)) return audioDevices[i].label
-                return String(cfg.audio)
-              }
-              enabled: audioDevices.length > 0
-              onChanged: function(label) {
-                for (var i = 0; i < audioDevices.length; i++)
-                  if (audioDevices[i].label === label) { root.updateGlobal({ audio: audioDevices[i].id }); return }
-              }
-            }
-
-          Row {
-            spacing: Style.space(6)
-
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              width: Style.space(64)
-              text: "SOURCE"
-              color: root.dim
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-
-            Dropdown {
-              width: Style.space(220)
-              showLabel: false
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              options: {
-                var opts = ["All screens"]
-                monitorList.forEach(function(m) { opts.push(m.label) })
-                opts.push("Portal (choose on stream)")
-                opts.push("Focused window")
-                if (!["screen", "portal", "focused"].includes(String(cfg.capture))
-                    && monitorList.every(function(m) { return m.id !== String(cfg.capture) }))
-                  opts.push(String(cfg.capture)) // preserved custom value
-                return opts
-              }
-              value: {
-                var c = String(cfg.capture)
-                if (c === "screen") return "All screens"
-                if (c === "portal") return "Portal (choose on stream)"
-                if (c === "focused") return "Focused window"
-                for (var i = 0; i < monitorList.length; i++)
-                  if (monitorList[i].id === c) return monitorList[i].label
-                return c
-              }
-              onChanged: function(label) {
-                if (label === "All screens") { root.updateGlobal({ capture: "screen" }); return }
-                if (label === "Portal (choose on stream)") { root.updateGlobal({ capture: "portal" }); return }
-                if (label === "Focused window") { root.updateGlobal({ capture: "focused" }); return }
-                for (var i = 0; i < monitorList.length; i++)
-                  if (monitorList[i].label === label) { root.updateGlobal({ capture: monitorList[i].id }); return }
-                root.updateGlobal({ capture: label })
-              }
-            }
-          }
-        }
-        }
-
-        // ---- Workspace privacy -------------------------------------------
-        Column {
+        // ---- Workspace privacy (page 0) -----------------------------------
+        HiddenWorkspacesSection {
           visible: contentColumn.tabPage === 0
           width: parent.width
-          spacing: Style.space(8)
-
-          PanelSectionHeader {
-            text: "HIDDEN WORKSPACES"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-          }
-
-          Flow {
-            width: parent.width
-            spacing: Style.space(6)
-
-            Repeater {
-              model: root.hyprWorkspaces
-
-              Button {
-                required property var modelData
-                readonly property int wsId: modelData.id
-                readonly property string label: modelData.name !== "" ? modelData.name : String(wsId)
-                text: label
-                selected: root.isHiddenWs(wsId)
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.toggleHiddenWs(wsId)
-              }
-            }
-
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              text: root.wsPaused ? "● PAUSED" : ""
-              color: root.liveColor
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-          }
+          ctrl: root
         }
 
-        // ---- Page 1: platforms ------------------------------------------
-        Column {
+        // ---- Page 1: platforms --------------------------------------------
+        PlatformsPage {
           id: platformsPage
-visible: contentColumn.tabPage === 1
+          visible: contentColumn.tabPage === 1
           height: contentColumn.tabPageHeight
           width: parent.width
-          spacing: Style.space(12)
-
-        // One block per platform.
-        Repeater {
-          model: Stream.platforms()
-
-          Column {
-            id: platformBlock
-            required property var modelData
-            width: parent.width
-            spacing: Style.space(8)
-
-            readonly property var entry: root.entryFor(modelData.id)
-            // Only commit the key field when the user actually typed.
-            property bool keyDirty: false
-            readonly property bool hasKey: root.keyPresent[modelData.id] === true
-            readonly property bool streaming: root.live && entry.enabled === true &&
-                                              (modelData.id === "twitch" ? twitchProc.running :
-                                               modelData.id === "youtube" ? youtubeProc.running : xProc.running)
-
-            Item {
-              width: parent.width
-              implicitHeight: Math.max(platformLabel.implicitHeight, platformSwitch.implicitHeight)
-
-              Rectangle {
-                id: statusDot
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                width: Style.space(7)
-                height: width
-                radius: width / 2
-                color: streaming ? root.liveColor : (parent.parent.enabled ? root.dim : "transparent")
-                border.width: 1
-                border.color: root.dim
-              }
-
-              Text {
-                id: platformLabel
-                anchors.left: statusDot.right
-                anchors.leftMargin: Style.space(8)
-                anchors.verticalCenter: parent.verticalCenter
-                text: modelData.label.toUpperCase()
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.letterSpacing: 1.2
-              }
-
-              ToggleSwitch {
-                id: platformSwitch
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                checked: platformBlock.entry.enabled
-                foreground: root.contentForeground
-                onToggled: root.updateEntry(platformBlock.modelData.id, { enabled: !root.entryFor(platformBlock.modelData.id).enabled })
-              }
-            }
-
-            TextField {
-              width: parent.width
-              foreground: root.contentForeground
-              text: platformBlock.entry.url
-              placeholderText: platformBlock.modelData.id === "x"
-                ? "rtmp://<region>.pscp.tv:80/x — from X Producer"
-                : "RTMP(S) ingest URL"
-              onEditingFinished: {
-                if (platformBlock.modelData.id === "twitch") root.ingestStatus = ""
-                root.updateEntry(platformBlock.modelData.id, { url: text.trim() })
-              }
-            }
-
-            // Twitch-only: one-click lowest-latency ingest selection, same
-            // feed OBS queries.
-            Row {
-              visible: platformBlock.modelData.id === "twitch"
-              spacing: Style.space(8)
-
-              Button {
-                text: "◎ PICK FASTEST INGEST"
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.pickTwitchIngest()
-              }
-
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.ingestStatus
-                color: root.dim
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-              }
-            }
-
-            TextField {
-              visible: platformBlock.modelData.id === "twitch"
-              width: parent.width
-              foreground: root.contentForeground
-              text: String(cfg.chatTwitchChannel || "")
-              placeholderText: "Channel name — enables TWITCH chat"
-              onEditingFinished: root.updateGlobal({ chatTwitchChannel: text.trim() })
-            }
-
-            TextField {
-              visible: platformBlock.modelData.id === "youtube"
-              width: parent.width
-              foreground: root.contentForeground
-              text: String(cfg.chatYoutubeId || "")
-              placeholderText: "Video ID (watch?v=…) — enables YOUTUBE chat"
-              onEditingFinished: root.updateGlobal({ chatYoutubeId: text.trim() })
-            }
-
-            Row {
-              width: parent.width
-              spacing: Style.space(6)
-
-              TextField {
-                id: keyField
-                width: parent.width - Style.space(76)
-                foreground: root.contentForeground
-                password: true
-                // Programmatic clears must not count as edits.
-                property bool clearing: false
-                placeholderText: platformBlock.hasKey
-                  ? "Stored in keyring — paste to replace"
-                  : "Stream key"
-                onTextChanged: if (!clearing) platformBlock.keyDirty = true
-              }
-
-              Button {
-                text: "SAVE KEY"
-                selected: platformBlock.keyDirty
-                bordered: true
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: {
-                  var secret = keyField.text.trim()
-                  platformBlock.keyDirty = false
-                  keyField.clearing = true
-                  keyField.text = ""
-                  keyField.clearing = false
-                  root.storeKey(platformBlock.modelData.id, secret)
-                }
-              }
-            }
-          }
-        }
+          ctrl: root
         }
 
-          // ---- Page 2: stream info (title · thumbnail · schedule) ----------
-        Column {
+        // ---- Page 2: stream info (title · thumbnail · schedule) -----------
+        InfoPage {
           id: infoPage
           visible: contentColumn.tabPage === 2
           height: contentColumn.tabPageHeight
           width: parent.width
-          spacing: Style.space(12)
-
-          PanelSectionHeader {
-            text: "SCHEDULED START"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-          }
-
-          Row {
-            spacing: Style.space(8)
-
-            TextField {
-              width: Style.space(90)
-              foreground: root.contentForeground
-              text: String(cfg.startTime)
-              placeholderText: "HH:MM"
-              onEditingFinished: root.updateGlobal({ startTime: text.trim() })
-            }
-
-            ToggleSwitch {
-              anchors.verticalCenter: parent.verticalCenter
-              checked: String(cfg.autoStart) === "true"
-              foreground: root.contentForeground
-              onToggled: root.updateGlobal({ autoStart: String(cfg.autoStart) === "true" ? false : true })
-            }
-
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              text: root.schedCountdown
-              color: root.dim
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-          }
+          ctrl: root
         }
 
-        // ---- Page 2: program monitor -------------------------------------
-          Column {
-            id: previewPage
-            visible: contentColumn.tabPage === 3
-            height: contentColumn.tabPageHeight
-            width: parent.width
-            spacing: Style.space(8)
+        // ---- Page 3: program monitor ---------------------------------------
+        PreviewPage {
+          id: previewPage
+          visible: contentColumn.tabPage === 3
+          height: contentColumn.tabPageHeight
+          width: parent.width
+          ctrl: root
+        }
 
-            Monitor {
-              width: parent.width
-              scene: root.scene
-              streaming: root.live
-              elapsedText: root.elapsedText
-              pipXPct: Number(cfg.pipXPct) || 72
-              pipYPct: Number(cfg.pipYPct) || 62
-              pipSizePct: Number(cfg.pipSizePct) || 22
-              camShotSeq: root.camShotSeq
-              camGrabbing: camGrabProc.running
-              fg: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onPlacementChanged: function(xp, yp) { root.updateGlobal({ pipXPct: xp, pipYPct: yp }) }
-            }
-
-            
-          }
-        // ---- Page 3: chat (one column per enabled platform) --------------
-        Column {
+        // ---- Page 4: chat ---------------------------------------------------
+        ChatPage {
           id: chatPage
           visible: contentColumn.tabPage === 4
           height: contentColumn.tabPageHeight
           width: parent.width
-          spacing: Style.space(8)
-
-          Row {
-            width: parent.width
-            height: parent.height
-            spacing: Style.space(8)
-
-            Repeater {
-              model: root.chatColumns
-
-              Rectangle {
-                required property var modelData
-                readonly property int colCount: root.chatColumns.length
-                width: Math.floor((parent.width - Style.space(8) * (colCount - 1)) / colCount)
-                height: parent.height
-                color: "#000000"
-                radius: Style.space(4)
-                clip: true
-
-                Column {
-                  anchors.fill: parent
-                  anchors.margins: Style.space(6)
-                  spacing: Style.space(6)
-
-                  Text {
-                    text: modelData.title + " · " + (modelData.lines.length || "")
-                    color: root.dim
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.letterSpacing: 1
-                  }
-
-                  Flickable {
-                    id: chatScroll
-                    width: parent.width
-                    height: parent.height - headerLabel.height - Style.space(12)
-                    contentWidth: width
-                    contentHeight: msgList.implicitHeight
-                    clip: true
-
-                    property bool pinned: true
-                    onContentHeightChanged: if (pinned) contentY = Math.max(0, contentHeight - height)
-                    onDragEnded: pinned = (contentY >= contentHeight - height - Style.space(24))
-
-                    Column {
-                      id: msgList
-                      width: chatScroll.width
-                      spacing: Style.space(3)
-
-                      Repeater {
-                        model: modelData.lines
-
-                        delegate: Text {
-                          required property var modelData
-                          width: chatScroll.width
-                          wrapMode: Text.WrapAnywhere
-                          color: root.contentForeground
-                          font.family: root.contentFontFamily
-                          font.pixelSize: Style.font.bodySmall
-                          text: modelData.u !== "" ? modelData.u + ": " + modelData.m : modelData.m
-                        }
-                      }
-
-                      Item { width: 1; height: 1 }
-                    }
-                  }
-
-                  Text {
-                    id: headerLabel
-                    visible: modelData.lines.length === 0
-                    text: modelData.key === "x" ? "no public chat API" : "waiting for messages…"
-                    color: root.dim
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                  }
-                }
-              }
-            }
-          }
+          ctrl: root
         }
 
-        // Error / status line — fixed slot so status messages never resize
-        // the panel.
-        Item {
-          width: parent.width
-          height: Style.space(20)
-          clip: true
+        StatusLine { width: parent.width; ctrl: root }
 
-          Text {
-            width: parent.width
-            visible: root.lastError !== ""
-            text: root.lastError
-            color: root.urgent
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.bodySmall
-            elide: Text.ElideRight
-          }
-        }
+        GoLiveButton { width: parent.width; ctrl: root }
 
-        // The single action: starts or stops every enabled platform.
-        Button {
-          width: parent.width
-          leftAlign: true
-          bordered: true
-          text: root.live ? "■ STOP STREAMING" : "● GO LIVE — ALL PLATFORMS"
-          selected: root.live
-          foreground: root.contentForeground
-          accent: root.liveColor
-          fontFamily: root.contentFontFamily
-          onClicked: root.toggleStream()
-        }
 
         
       }
