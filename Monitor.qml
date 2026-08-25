@@ -51,7 +51,7 @@ Item {
     id: shotProc
     // Atomic write: readers never see a half-written file.
     command: ["bash", "-c",
-      'grim -t jpeg -q 55 /tmp/.omastream-desktop-new.jpg '
+      'grim -t jpeg -q 72 /tmp/.omastream-desktop-new.jpg '
       + '&& mv /tmp/.omastream-desktop-new.jpg /tmp/omastream-desktop.jpg']
     onExited: function(code) {
       root.shotBusy = false
@@ -73,7 +73,7 @@ Item {
       fillMode: Image.PreserveAspectCrop
       cache: false
       asynchronous: false
-      sourceSize: Qt.size(width, height)
+      sourceSize: Qt.size(width * Screen.devicePixelRatio || width, height * Screen.devicePixelRatio || height)
       visible: root.scene !== "camera"
       source: root.scene !== "camera" && root.shotSeq > 0
         ? "file:///tmp/omastream-desktop.jpg?seq=" + root.shotSeq
@@ -117,7 +117,7 @@ Item {
           fillMode: Image.PreserveAspectCrop
           cache: false
           asynchronous: false
-          sourceSize: Qt.size(width, height)
+          sourceSize: Qt.size(width * Screen.devicePixelRatio || width, height * Screen.devicePixelRatio || height)
           source: root.camGrabbing && root.camShotSeq > 0
             ? "file:///tmp/omastream-cam.jpg?seq=" + root.camShotSeq
             : ""

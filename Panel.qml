@@ -486,7 +486,8 @@ Panel {
   }
 
   function updateCamGrab() {
-    var want = root.opened && root.sceneWantsCam && !root.live
+    var want = root.opened && contentColumn.tabPage === 4
+                && root.sceneWantsCam && !root.live
                 && root.camSourceArg !== ""
     if (want && !camGrabProc.running) {
       // Atomic writes: grab to temp file, rename — readers never see
@@ -495,7 +496,7 @@ Panel {
         'SRC="' + root.camSourceArg.replace(/"/g, '') + '"; '
         + (String(cfg.cameraSource) === "url"
           ? 'FLAGS=""'
-          : 'FLAGS="-f v4l2 -video_size 640x480"') + '; '
+          : 'FLAGS="-f v4l2 -video_size 480x360"') + '; '
         + 'while true; do '
         + 'ffmpeg -hide_banner -loglevel error -y $FLAGS -i "$SRC" '
         + '-vf fps=10 -frames:v 1 -q:v 4 /tmp/.omastream-cam-new.jpg '
