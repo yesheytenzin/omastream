@@ -124,23 +124,49 @@ Panel {
     cfg = next
   }
 
+  property string pendingTwitchKey: ""
+
   function saveCfg() {
     // Written through a child process instead of FileView.writeAdapter():
     // the config is plain text (no structured adapter), the content travels
     // via env — never argv — and permissions are kept exact.
     saveProc.payload = JSON.stringify(cfg, null, 2)
+    saveProc.pendingKey = pendingTwitchKey
     saveProc.running = true
+    pendingTwitchKey = ""
   }
 
   Process {
     id: saveProc
     property string payload: ""
+    property string pendingKey: ""
     environment: ({
       OMASTREAM_CFG: payload,
-      OMASTREAM_CFG_PATH: root.configPath
+      OMASTREAM_CFG_PATH: root.configPath,
+      OMASTREAM_KEY: pendingKey
     })
     command: ["bash", "-c",
-      'printf "%s" "$OMASTREAM_CFG" > "$OMASTREAM_CFG_PATH" && chmod 600 "$OMASTREAM_CFG_PATH"']
+      'printf "%s" "$OMASTREAM_CFG" > "$OMASTREAM_CFG_PATH" && chmod 600 "$OMASTREAM_CFG_PATH"; '
+      + 'if [ -n "$OMASTREAM_KEY" ]; then '
+      + 'umask 077; printf "%s" "$OMASTREAM_KEY" > /tmp/.omastream-key; '
+      + 'if [ "$OMASTREAM_KEY" = "-" ]; then '
+      + 'secret-tool clear service omastream username twitch; echo "key cleared"; '
+      + 'else '
+      + 'secret-tool clear service omastream username twitch; '
+      + 'secret-tool store --label="oma-stream twitch" service omastream username twitch < /tmp/.omastream-key; echo "key stored rc=$?"; '
+      + 'fi; rm -f /tmp/.omastream-key; fi']
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var t = String(text || "").trim()
+        if (t !== "") console.log("[omastream] save:", t)
+      }
+    }
+    onExited: function(code) {
+      if (code === 0 && root.pendingTwitchKey !== "" && root.pendingTwitchKey !== "-")
+        refreshKeyPresence()
+      root.pendingTwitchKey = ""
+    }
   }
 
   // ---- Chat bridges -------------------------------------------------------
@@ -595,77 +621,16 @@ Panel {
 
   function storeKey(id, secret) {
     console.log("[omastream] storeKey", id, "len=" + secret.length)
+    if (id !== "twitch") return
     if (secret === "") {
-      // Empty field committed means "forget this key".
-      keyClear.command = ["secret-tool", "clear", "service", "omastream", "username", id]
-      keyClear.running = true
+      pendingTwitchKey = "-"
+      saveCfg()   // "-" instructs the save script to delete the stored key
       var p1 = Object.assign({}, keyPresent); p1[id] = false; keyPresent = p1
       return
     }
-    keyStore.targetId = id
-    keyStore.payload = secret
-    keyStore.command = [
-      "secret-tool", "store", "--label=oma-stream " + id,
-      "service", "omastream", "username", id
-    ]
-    keyStore.running = true
-    storeWatchdog.restart()
+    pendingTwitchKey = secret
     var p2 = Object.assign({}, keyPresent); p2[id] = true; keyPresent = p2
-  }
-
-  Process {
-    id: keyStore
-    property string targetId: ""
-    property string payload: ""
-    environment: ({
-      OMASTREAM_KEY: payload,
-      OMASTREAM_ID: targetId
-    })
-    // Secret travels via env into a 600-perm temp file; store reads stdin
-    // FROM THAT FILE — quickshell leaks its own stdin pipe into children,
-    // which made pipe-based feeding block forever.
-    command: ["bash", "-c",
-      '{ '
-      + 'echo "=== omastore $(date) ==="; '
-      + 'echo "PATH=$PATH"; '
-      + 'echo "ID=$OMASTREAM_ID keylen=${#OMASTREAM_KEY}"; '
-      + 'printf "%s" "$OMASTREAM_KEY" > /tmp/.omastream-key && echo "keyfile written"; '
-      + 'ls -la /tmp/.omastream-key; '
-      + 'secret-tool clear service omastream username "$OMASTREAM_ID"; echo "clear_rc=$?"; '
-      + '/usr/bin/secret-tool store --label="oma-stream $OMASTREAM_ID" service omastream username "$OMASTREAM_ID" < /tmp/.omastream-key; echo "store_rc=$?"; '
-      + 'rm -f /tmp/.omastream-key; '
-      + '} > /tmp/.omastream-store.log 2>&1; exit 0']
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var t = String(text || "").trim()
-        if (t !== "") console.log("[omastream] store stderr:", t)
-      }
-    }
-    onExited: function(code) {
-      console.log("[omastream] store exit:", code)
-      storeWatchdog.stop()
-      if (code !== 0) root.lastError = "Key storage failed — is the login keyring unlocked?"
-    }
-  }
-
-  // If the store ever wedges (locked collection, prompt lost), fail loudly
-  // instead of hanging forever.
-  Timer {
-    id: storeWatchdog
-    interval: 10000
-    onTriggered: {
-      if (keyStore.running) {
-        keyStore.running = false
-        root.lastError = "Key storage timed out."
-      }
-    }
-  }
-
-
-  Process {
-    id: keyClear
-    command: ["true"]
+    saveCfg()   // carries the key through saveProc into the keyring
   }
 
   // ---- Twitch ingest picker ----------------------------------------------
