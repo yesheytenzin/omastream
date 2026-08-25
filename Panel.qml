@@ -435,7 +435,7 @@ Panel {
     }
     if (s && s.width > 0) screenW = s.width
   }
-  onVisibleChanged: if (visible) refreshScreenW()
+  onVisibleChanged: if (visible) { refreshScreenW(); updateCamGrab() }
 
   readonly property real targetPanelWidth: Math.max(480, Math.min(screenW * 0.48, 1100))
 
@@ -464,6 +464,68 @@ Panel {
   }
   readonly property int focusedWsId: Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1
   property bool wsPaused: false
+
+  // ---- Camera preview grabber ---------------------------------------------
+  // Idle previews use ffmpeg frame-grabs (2fps JPEG) instead of a second
+  // Qt camera session: v4l2 devices allow one consumer, and this keeps the
+  // device free for gpu-screen-recorder / the overlay when live.
+  property int camShotSeq: 0
+  readonly property bool sceneWantsCam: scene !== "screen"
+  readonly property string camSourceArg: String(cfg.cameraSource) === "url"
+    ? String(cfg.cameraUrl || "")
+    : String(cfg.cameraDevice || "/dev/video0")
+
+  // Cheap 1s convergence loop: catches every missed visibility/signal edge.
+  Timer {
+    id: camEval
+    interval: 1000
+    repeat: true
+    running: true
+    triggeredOnStart: true
+    onTriggered: updateCamGrab()
+  }
+
+  function updateCamGrab() {
+    var want = root.opened && root.sceneWantsCam && !root.live
+                && root.camSourceArg !== ""
+    if (want && !camGrabProc.running) {
+      var cmd = String(cfg.cameraSource) === "url"
+        ? ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+           "-i", root.camSourceArg,
+           "-vf", "fps=2", "-update", "1", "-q:v", "5",
+           "/tmp/omastream-cam.jpg"]
+        : ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+           "-f", "v4l2", "-video_size", "640x480",
+           "-i", root.camSourceArg,
+           "-vf", "fps=2", "-update", "1", "-q:v", "5",
+           "/tmp/omastream-cam.jpg"]
+      camGrabProc.command = cmd
+      camGrabProc.running = true
+    } else if (!want && camGrabProc.running) {
+      camGrabProc.running = false
+    }
+    camShotTick.restart()
+  }
+
+  Timer {
+    id: camShotTick
+    interval: 600
+    repeat: true
+    running: camGrabProc.running
+    onTriggered: root.camShotSeq++
+  }
+
+  Process {
+    id: camGrabProc
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var t = String(text || "").trim()
+        if (t !== "") console.log("[omastream] grab:", t.split("\n").pop())
+      }
+    }
+  }
+
 
   function isHiddenWs(id) {
     var list = cfg.hiddenWorkspaces || []
@@ -557,50 +619,31 @@ Panel {
     ? String(cfg.cameraDevice || "/dev/video0")
     : "screen"
 
-  function buildCamOverlayArgs() {
-    // Percent offsets mirror the monitor's tile position: mpv measures them
-    // against screen size minus window size, same as our canvas math.
-    var xp = Math.round(Number(cfg.pipXPct) || 72)
-    var yp = Math.round(Number(cfg.pipYPct) || 62)
-    var size = Math.round(Number(cfg.pipSizePct) || 22)
-    return [
-      "mpv",
-      "--ontop", "--border=no", "--mute=yes",
-      "--autofit=" + size + "%",
-      "--geometry=" + xp + "%+" + yp + "%",
-      "--title=omastream-camera",
-      String(cfg.cameraSource) === "url"
-        ? String(cfg.cameraUrl)   // phones / IP cams stream over http(s)/rtsp
-        : "av://v4l2:" + String(cfg.cameraDevice || "/dev/video0") // mpv won't autodetect a raw v4l2 node
-    ]
-  }
+  readonly property bool camOverlayActive: scene === "pip" && (camPreviewOn || live)
 
   function toggleCamPreview() {
     lastError = ""
-    if (camOverlay.running) {
-      camOverlay.running = false
-      camPreviewOn = false
-    } else {
-      camOverlay.command = buildCamOverlayArgs()
-      camOverlay.running = true
-    }
+    camPreviewOn = !camPreviewOn
   }
 
   property bool camPreviewOn: false
 
-  Process {
-    id: camOverlay
-    onExited: root.camPreviewOn = false
+  Loader {
+    id: camOverlayLoader
+    active: camOverlayActive
+    sourceComponent: CameraOverlay {
+      panelRoot: root
+    }
   }
+
+
+  property int pipStage: 0
 
   Timer {
     id: pipDelay
     interval: 2000
     repeat: false
-    onTriggered: {
-      if (root.goLiveIds.length > 0) root.startLookupPhase()
-      else root.lastError = "Stream cancelled."
-    }
+    onTriggered: startLookupPhase()
   }
 
   Process {
@@ -772,6 +815,9 @@ Panel {
 
   // ---- Live state ---------------------------------------------------------
   readonly property bool live: twitchProc.running || youtubeProc.running || xProc.running
+  // Whatever way a stream ends (STOP, crash, remote close), give the camera
+  // back to the preview immediately.
+  onLiveChanged: updateCamGrab()
   readonly property int activeCount: (twitchProc.running ? 1 : 0) + (youtubeProc.running ? 1 : 0) + (xProc.running ? 1 : 0)
   readonly property int readyCount: Stream.platforms().filter(function(p) { return Stream.isReady(entryFor(p.id)) }).length
 
@@ -797,6 +843,7 @@ Panel {
 
   function goLive() {
     root.lastError = ""
+    camGrabProc.running = false   // free the webcam before encoders claim it
     if (root.gsrMissing) {
       root.lastError = "gpu-screen-recorder is required."
       return
@@ -830,11 +877,12 @@ Panel {
 
     root.goLiveIds = ids
 
-    // PiP: raise the overlay window first and give it a moment to appear,
-    // so the capture opens with the camera already in frame.
-    if (root.scene === "pip" && !camOverlay.running) {
-      camOverlay.command = buildCamOverlayArgs()
-      camOverlay.running = true
+    // PiP: staged startup — release the Qt camera session, THEN raise the
+    // overlay window (it needs the freed device), let it settle, and only
+    // then begin key lookups + capture.
+    if (root.scene === "pip") {
+      root.pipStage = 0
+      pipDelay.interval = 700
       pipDelay.restart()
       return
     }
@@ -856,6 +904,7 @@ Panel {
     twitchProc.running = false
     youtubeProc.running = false
     xProc.running = false
+    root.pipStage = 0
   }
 
   function procFor(id) {
@@ -1670,9 +1719,8 @@ visible: contentColumn.tabPage === 1
               pipXPct: Number(cfg.pipXPct) || 72
               pipYPct: Number(cfg.pipYPct) || 62
               pipSizePct: Number(cfg.pipSizePct) || 22
-              cameraDeviceId: String(cfg.cameraDevice || "")
-            cameraSource: String(cfg.cameraSource) || "device"
-            cameraUrl: String(cfg.cameraUrl) || ""
+              camShotSeq: root.camShotSeq
+              camGrabbing: camGrabProc.running
               fg: root.contentForeground
               fontFamily: root.contentFontFamily
               onPlacementChanged: function(xp, yp) { root.updateGlobal({ pipXPct: xp, pipYPct: yp }) }

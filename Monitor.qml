@@ -1,15 +1,14 @@
 import QtQuick
-import QtMultimedia
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
 // Program monitor: a 16:9 canvas mirroring what the stream will show.
-//   - scene "screen"/"pip": desktop snapshot refreshed every ~2s via grim
-//     (Hyprland screencopy — no portal dialogs), camera tile on top in pip
-//   - scene "camera":       the webcam fills the canvas, fully live
-// The camera is true live video (Qt Camera); the desktop layer is a fast
-// slideshow because Wayland has no dialog-free continuous capture for us.
+//   - desktop layer:  snapshot refreshed every ~2s via grim (no dialogs)
+//   - camera tile:    snapshot refreshed by the panel's ffmpeg grabber
+// Both are fast slideshows — deliberate: Wayland gives us no dialog-free
+// continuous capture, and idle previews don't need 60fps. During GO LIVE
+// the real compositor is gpu-screen-recorder + the overlay window.
 Item {
   id: root
 
@@ -19,9 +18,8 @@ Item {
   property real pipXPct: 72        // camera tile position, % of canvas width/height
   property real pipYPct: 62
   property real pipSizePct: 22     // tile width, % of canvas width
-  property string cameraDeviceId: ""
-  property string cameraSource: "device"
-  property string cameraUrl: ""
+  property int camShotSeq: 0       // bumped by the panel each camera frame
+  property bool camGrabbing: false // true while the panel's ffmpeg grab runs
   property color fg: Color.foreground
   property color dim: Qt.darker(fg, 1.55)
   property string fontFamily: Style.font.family
@@ -33,26 +31,6 @@ Item {
   property bool shotBusy: false
 
   implicitHeight: width * 9 / 16
-
-  MediaDevices { id: mediaDevices }
-
-  // Native resolution of the active camera format (falls back to a common
-  // UVC default until the camera reports one). Drives the tile's aspect so
-  // there are never letterbox bars or padding around the feed.
-  readonly property var camResolution: {
-    var f = camera.cameraFormat
-    if (f && f.resolution && f.resolution.width > 0 && f.resolution.height > 0)
-      return f.resolution
-    return Qt.size(640, 480)
-  }
-
-  function selectedDevice() {
-    var want = String(cameraDeviceId || "")
-    var list = mediaDevices.videoInputs || []
-    for (var i = 0; i < list.length; i++)
-      if (String(list[i].id) === want) return list[i]
-    return mediaDevices.defaultVideoInput
-  }
 
   function takeShot() {
     if (!root.active || root.scene === "camera" || root.shotBusy) return
@@ -78,37 +56,6 @@ Item {
     }
   }
 
-  // ---- Camera layer -------------------------------------------------------
-  MediaPlayer {
-    id: netPlayer
-    source: root.cameraSource === "url" ? root.cameraUrl : ""
-    videoOutput: netOut
-    onErrorOccurred: function(error, errorString) {
-      console.log("[omastream] network camera error: " + errorString)
-    }
-  }
-
-  // Pause/resume with the page, and never keep a socket open off-tab.
-  onVisibleChanged: refreshNetPlayback()
-  onCameraSourceChanged: refreshNetPlayback()
-  onCameraUrlChanged: refreshNetPlayback()
-  function refreshNetPlayback() {
-    if (root.visible && root.active && root.cameraSource === "url" && root.scene !== "screen" && root.cameraUrl !== "")
-      netPlayer.play()
-    else
-      netPlayer.stop()
-  }
-
-  CaptureSession {
-    id: camSession
-    camera: Camera {
-      id: camera
-      cameraDevice: root.selectedDevice()
-      active: root.active && root.scene !== "screen"
-    }
-    videoOutput: camOut
-  }
-
   Rectangle {
     id: canvas
     anchors.fill: parent
@@ -116,6 +63,7 @@ Item {
     color: "#000000"
     clip: true
 
+    // ---- Desktop layer (grim snapshots) -----------------------------------
     Image {
       id: shotImg
       anchors.fill: parent
@@ -140,16 +88,14 @@ Item {
       font.letterSpacing: 2
     }
 
-    
-
-    // Camera tile — full canvas in WEBCAM scene, draggable tile in PIP
+    // ---- Camera tile -------------------------------------------------------
     Item {
       id: camTile
       visible: root.scene !== "screen"
       width: root.scene === "camera" ? parent.width : parent.width * root.pipSizePct / 100
       height: root.scene === "camera"
         ? parent.height
-        : Math.max(1, width * root.camResolution.height / root.camResolution.width)
+        : Math.max(1, width * 3 / 4) // UVC default 640x480
       x: root.scene === "camera"
         ? 0
         : Math.max(0, Math.min(parent.width - width, parent.width * root.pipXPct / 100))
@@ -159,28 +105,24 @@ Item {
 
       Rectangle {
         anchors.fill: parent
-        color: "transparent"
-        clip: true
+        color: "#101010"
 
-        VideoOutput {
-          id: camOut
+        Image {
+          id: camImg
           anchors.fill: parent
-          fillMode: VideoOutput.PreserveAspectCrop
-          visible: root.cameraSource !== "url"
-        }
-
-        VideoOutput {
-          id: netOut
-          anchors.fill: parent
-          fillMode: VideoOutput.PreserveAspectFit
-          visible: root.cameraSource === "url"
+          fillMode: Image.PreserveAspectCrop
+          cache: false
+          asynchronous: true
+          source: root.camGrabbing && root.camShotSeq > 0
+            ? "file:///tmp/omastream-cam.jpg?seq=" + root.camShotSeq
+            : ""
         }
 
         Text {
-          visible: (root.cameraSource === "url" ? !netOut.videoVisible : !camOut.videoVisible)
+          visible: camImg.source === ""
           anchors.centerIn: parent
-          text: root.cameraSource === "url" ? "CONNECTING…" : "CAM"
-          color: root.dim
+          text: root.camGrabbing ? "CAM · UPDATING…" : "CAMERA OFF"
+          color: "#888888"
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
         }
@@ -202,8 +144,6 @@ Item {
         }
       }
     }
-
-
 
     // LIVE badge
     Rectangle {
@@ -239,18 +179,6 @@ Item {
           font.letterSpacing: 1
         }
       }
-    }
-
-    Text {
-      visible: root.scene !== "pip"
-      anchors.bottom: parent.bottom
-      anchors.right: parent.right
-      anchors.bottomMargin: Style.space(8)
-      anchors.rightMargin: Style.space(8)
-      text: root.scene === "camera" ? "WEBCAM ONLY" : "FULL SCREEN"
-      color: root.dim
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.bodySmall
     }
   }
 }
