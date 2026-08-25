@@ -510,11 +510,8 @@ Panel {
         + (String(cfg.cameraSource) === "url"
           ? 'FLAGS=""'
           : 'FLAGS="-f v4l2 -video_size 480x360"') + '; '
-        + 'while true; do '
         + 'ffmpeg -hide_banner -loglevel error -y $FLAGS -i "$SRC" '
-        + '-vf fps=10 -frames:v 1 -q:v 4 /tmp/.omastream-cam-new.jpg '
-        + '&& mv /tmp/.omastream-cam-new.jpg /tmp/omastream-cam.jpg; '
-        + 'sleep 0.09; done']
+        + '-vf fps=30 -q:v 4 -update 1 /tmp/omastream-cam.jpg']
       camGrabProc.command = cmd
       camGrabProc.running = true
     } else if (!want && camGrabProc.running) {
@@ -531,7 +528,7 @@ Panel {
 
   Timer {
     id: camShotTick
-    interval: 150
+    interval: 33
     repeat: true
     running: camGrabProc.running
     onTriggered: root.camShotSeq++
