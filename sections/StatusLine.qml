@@ -2,19 +2,15 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// Error / status line — fixed slot so status messages never resize the
-// panel. `ctrl` is the owning panel root.
 Item {
   id: statusLine
-
   property var ctrl: null
-
   width: parent.width
-  height: Style.space(20)
+  height: Style.space(16)
   clip: true
-
   Text {
     width: parent.width
+    anchors.verticalCenter: parent.verticalCenter
     visible: ctrl.lastError !== ""
     text: ctrl.lastError
     color: ctrl.urgent
