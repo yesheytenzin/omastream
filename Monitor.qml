@@ -102,10 +102,10 @@ Item {
         : Math.max(1, width * 3 / 4) // UVC default 640x480
       x: root.scene === "camera"
         ? 0
-        : Math.max(0, Math.min(parent.width - width, parent.width * root.pipXPct / 100))
+        : Math.max(0, Math.min(parent.width - width, (parent.width - width) * root.pipXPct / 100))
       y: root.scene === "camera"
         ? 0
-        : Math.max(0, Math.min(parent.height - height, parent.height * root.pipYPct / 100))
+        : Math.max(0, Math.min(parent.height - height, (parent.height - height) * root.pipYPct / 100))
 
       Rectangle {
         anchors.fill: parent
@@ -143,8 +143,10 @@ Item {
         onPressed: cursorShape = Qt.ClosedHandCursor
         onReleased: {
           cursorShape = Qt.OpenHandCursor
-          var xp = Math.round(camTile.x / canvas.width * 100)
-          var yp = Math.round(camTile.y / canvas.height * 100)
+          var availW = Math.max(1, canvas.width - camTile.width)
+          var availH = Math.max(1, canvas.height - camTile.height)
+          var xp = Math.round(camTile.x / availW * 100)
+          var yp = Math.round(camTile.y / availH * 100)
           root.placementChanged(xp, yp)
         }
       }
