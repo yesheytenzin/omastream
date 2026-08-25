@@ -291,7 +291,7 @@ Panel {
   property string activeYtArg: ""
 
   function updateChatBridges() {
-    var want = contentColumn.tabPage === 3 && root.opened
+    var want = contentColumn.tabPage === 4 && root.opened
     var ch = String(cfg.chatTwitchChannel || "").trim()
     var vid = String(cfg.chatYoutubeId || "").trim()
 
@@ -488,7 +488,7 @@ Panel {
   }
 
   function updateCamGrab() {
-    var want = root.opened && contentColumn.tabPage === 4
+    var want = root.opened && contentColumn.tabPage === 3
                 && root.sceneWantsCam && !root.live
                 && root.camSourceArg !== ""
     if (want && !camGrabProc.running) {
@@ -511,6 +511,11 @@ Panel {
       camKillProc.running = true
     }
     camShotTick.restart()
+  }
+
+  Process {
+    id: camKillProc
+    command: ["pkill", "-f", "ffmpeg.*omastream-cam"]
   }
 
   Timer {

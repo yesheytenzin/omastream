@@ -111,9 +111,9 @@ PanelWindow {
       }
 
       Text {
-        visible: !(root.cameraSource === "url" ? netOut.videoVisible : localOut.videoVisible)
+        visible: !(String(panelRoot.cfg.cameraSource) === "url" ? netOut.videoVisible : localOut.videoVisible)
         anchors.centerIn: parent
-        text: root.cameraSource === "url" ? "connecting…" : "CAM"
+        text: String(panelRoot.cfg.cameraSource) === "url" ? "connecting…" : "CAM"
         color: "#888888"
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall
