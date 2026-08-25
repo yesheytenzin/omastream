@@ -2,14 +2,11 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// Hidden-workspace privacy controls: pick workspaces whose windows are
-// excluded from capture while live. `ctrl` is the owning panel root.
 Column {
   id: hiddenWorkspaces
-
   property var ctrl: null
-
-  spacing: Style.space(8)
+  spacing: Style.space(6)
+  width: parent.width
 
   PanelSectionHeader {
     text: "HIDDEN WORKSPACES"
@@ -19,11 +16,9 @@ Column {
 
   Flow {
     width: parent.width
-    spacing: Style.space(6)
-
+    spacing: Style.space(4)
     Repeater {
       model: ctrl.hyprWorkspaces
-
       Button {
         required property var modelData
         readonly property int wsId: modelData.id
@@ -32,13 +27,16 @@ Column {
         selected: ctrl.isHiddenWs(wsId)
         foreground: ctrl.contentForeground
         fontFamily: ctrl.contentFontFamily
+        fontSize: Style.font.bodySmall
+        horizontalPadding: Style.space(6)
+        verticalPadding: Style.space(4)
         onClicked: ctrl.toggleHiddenWs(wsId)
       }
     }
-
     Text {
-      anchors.verticalCenter: parent.verticalCenter
-      text: ctrl.wsPaused ? "● PAUSED" : ""
+      leftPadding: Style.space(4)
+      topPadding: Style.space(4)
+      text: ctrl.wsPaused ? "\u25CF PAUSED" : ""
       color: ctrl.liveColor
       font.family: ctrl.contentFontFamily
       font.pixelSize: Style.font.bodySmall

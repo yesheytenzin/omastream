@@ -436,8 +436,9 @@ Panel {
     return out
   }
 
-  // Panel width scales with the screen: 48% of it, clamped to sane bounds,
-  // so the same UI fits small laptop panels and a 4K display alike.
+  // Compact, responsive panel width — same on all devices, scales with
+  // screen size (92% on small screens, ~42% capped at 560 on large).
+  readonly property bool isSmallScreen: screenW < 900
   property real screenW: 1280
 
   function refreshScreenW() {
@@ -450,7 +451,7 @@ Panel {
   }
   onVisibleChanged: if (visible) { refreshScreenW(); updateCamGrab() }
 
-  readonly property real targetPanelWidth: Math.max(480, Math.min(screenW * 0.48, 1100))
+  readonly property real targetPanelWidth: isSmallScreen ? Math.max(360, Math.min(screenW * 0.92, 520)) : Math.max(420, Math.min(screenW * 0.42, 560))
 
   readonly property real displayHz: {
     var s = Quickshell.screens
@@ -1004,7 +1005,7 @@ Panel {
       Column {
         id: contentColumn
         width: scroll.width
-        spacing: Style.space(12)
+        spacing: Style.space(8)
 
         property int tabPage: 0
         onTabPageChanged: root.updateChatBridges()
@@ -1048,46 +1049,28 @@ Panel {
 
         // Tabs: STREAM = scene + capture · PLATFORMS = per-service setup
         Row {
-          spacing: Style.space(6)
+          width: parent.width
+          spacing: Style.space(4)
 
-          Button {
-            text: "STREAM"
-            selected: contentColumn.tabPage === 0
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-            onClicked: contentColumn.tabPage = 0
-          }
-
-          Button {
-            text: "PLATFORMS"
-            selected: contentColumn.tabPage === 1
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-            onClicked: contentColumn.tabPage = 1
-          }
-
-          Button {
-            text: "SCHEDULE"
-            selected: contentColumn.tabPage === 2
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-            onClicked: contentColumn.tabPage = 2
-          }
-
-          Button {
-            text: "PREVIEW"
-            selected: contentColumn.tabPage === 3
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-            onClicked: contentColumn.tabPage = 3
-          }
-
-          Button {
-            text: "CHAT"
-            selected: contentColumn.tabPage === 4
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-            onClicked: contentColumn.tabPage = 4
+          Repeater {
+            model: [
+              { label: "STREAM", idx: 0 },
+              { label: "PLATFORMS", idx: 1 },
+              { label: "SCHEDULE", idx: 2 },
+              { label: "PREVIEW", idx: 3 },
+              { label: "CHAT", idx: 4 }
+            ]
+            Button {
+              required property var modelData
+              text: modelData.label
+              selected: contentColumn.tabPage === modelData.idx
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              fontSize: Style.font.bodySmall
+              horizontalPadding: Style.space(6)
+              verticalPadding: Style.space(4)
+              onClicked: contentColumn.tabPage = modelData.idx
+            }
           }
         }
 

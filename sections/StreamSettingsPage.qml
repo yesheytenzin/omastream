@@ -3,28 +3,23 @@ import qs.Commons
 import qs.Ui
 import "../Stream.js" as Stream
 
-// Page: stream settings — scene selection, camera source, capture,
-// bitrate and audio output. `ctrl` is the owning panel root.
+// Compact, uniform stream settings — same height/width, responsive.
 Column {
   id: streamPage
-
   property var ctrl: null
+  spacing: Style.space(8)
+  width: parent.width
 
-  spacing: Style.space(12)
-
-  // Scene selection: what the stream shows.
   Column {
     width: parent.width
-    spacing: Style.space(8)
+    spacing: Style.space(6)
 
     Column {
       visible: ctrl.gsrMissing
       width: parent.width
-      spacing: Style.space(8)
-
+      spacing: Style.space(6)
       Row {
-        spacing: Style.space(8)
-
+        spacing: Style.space(4)
         Text {
           anchors.verticalCenter: parent.verticalCenter
           text: "gpu-screen-recorder missing"
@@ -32,12 +27,14 @@ Column {
           font.family: ctrl.contentFontFamily
           font.pixelSize: Style.font.bodySmall
         }
-
         Button {
           text: "INSTALL"
           bordered: true
           foreground: ctrl.contentForeground
           fontFamily: ctrl.contentFontFamily
+          fontSize: Style.font.bodySmall
+          horizontalPadding: Style.space(6)
+          verticalPadding: Style.space(4)
           onClicked: ctrl.installGsr()
         }
       }
@@ -50,21 +47,23 @@ Column {
     }
 
     Row {
-      spacing: Style.space(6)
-
+      width: parent.width
+      spacing: Style.space(4)
       Repeater {
         model: [
           { id: "screen", label: "🖥 SCREEN" },
           { id: "pip",    label: "🖥+🎥 PIP" },
           { id: "camera", label: "🎥 WEBCAM" }
         ]
-
         Button {
           required property var modelData
           text: modelData.label
           selected: ctrl.scene === modelData.id
           foreground: ctrl.contentForeground
           fontFamily: ctrl.contentFontFamily
+          fontSize: Style.font.bodySmall
+          horizontalPadding: Style.space(6)
+          verticalPadding: Style.space(4)
           onClicked: ctrl.updateGlobal({ scene: modelData.id })
         }
       }
@@ -73,34 +72,37 @@ Column {
     Column {
       visible: ctrl.scene !== "screen"
       width: parent.width
-      spacing: Style.space(8)
+      spacing: Style.space(6)
 
       Row {
-        visible: ctrl.scene !== "screen"
-        spacing: Style.space(6)
-
+        width: parent.width
+        spacing: Style.space(4)
         Text {
           anchors.verticalCenter: parent.verticalCenter
-          width: Style.space(64)
+          width: Style.space(52)
           text: "SOURCE"
           color: ctrl.dim
           font.family: ctrl.contentFontFamily
           font.pixelSize: Style.font.bodySmall
         }
-
         Button {
           text: "WEBCAM / CAPTURE CARD"
           selected: String(ctrl.cfg.cameraSource) !== "url"
           foreground: ctrl.contentForeground
           fontFamily: ctrl.contentFontFamily
+          fontSize: Style.font.bodySmall
+          horizontalPadding: Style.space(6)
+          verticalPadding: Style.space(4)
           onClicked: ctrl.updateGlobal({ cameraSource: "device" })
         }
-
         Button {
           text: "PHONE / IP CAM"
           selected: String(ctrl.cfg.cameraSource) === "url"
           foreground: ctrl.contentForeground
           fontFamily: ctrl.contentFontFamily
+          fontSize: Style.font.bodySmall
+          horizontalPadding: Style.space(6)
+          verticalPadding: Style.space(4)
           onClicked: ctrl.updateGlobal({ cameraSource: "url" })
         }
       }
@@ -108,15 +110,18 @@ Column {
       TextField {
         visible: ctrl.scene !== "screen" && String(ctrl.cfg.cameraSource) === "url"
         width: parent.width
+        implicitHeight: Style.spacing.controlHeight
         foreground: ctrl.contentForeground
+        font.pixelSize: Style.font.bodySmall
         text: String(ctrl.cfg.cameraUrl)
-        placeholderText: "http://192.168.1.5:8080/video · rtsp://… (DroidCam, Iriun, IP Webcam)"
+        placeholderText: "http://192.168.1.5:8080/video · rtsp://…"
         onEditingFinished: ctrl.updateGlobal({ cameraUrl: text.trim() })
       }
 
       Dropdown {
         visible: ctrl.scene !== "screen" && String(ctrl.cfg.cameraSource) !== "url"
         width: parent.width
+        implicitHeight: Style.spacing.controlHeight
         showLabel: false
         foreground: ctrl.contentForeground
         fontFamily: ctrl.contentFontFamily
@@ -130,54 +135,52 @@ Column {
 
       Row {
         visible: ctrl.scene === "pip"
-        spacing: Style.space(6)
-
+        width: parent.width
+        spacing: Style.space(4)
         Text {
           anchors.verticalCenter: parent.verticalCenter
-          width: Style.space(64)
+          width: Style.space(52)
           text: "CAM SIZE"
           color: ctrl.dim
           font.family: ctrl.contentFontFamily
           font.pixelSize: Style.font.bodySmall
         }
-
         Repeater {
-          model: [
-            { v: 15, label: "S" }, { v: 22, label: "M" }, { v: 30, label: "L" }
-          ]
-
+          model: [{ v: 15, label: "S" }, { v: 22, label: "M" }, { v: 30, label: "L" }]
           Button {
             required property var modelData
             text: modelData.label
             selected: Number(ctrl.cfg.pipSizePct) === modelData.v
             foreground: ctrl.contentForeground
             fontFamily: ctrl.contentFontFamily
+            fontSize: Style.font.bodySmall
+            horizontalPadding: Style.space(6)
+            verticalPadding: Style.space(4)
             onClicked: ctrl.updateGlobal({ pipSizePct: modelData.v })
           }
         }
       }
 
-      Row {
+      Button {
         visible: ctrl.scene === "pip"
-        spacing: Style.space(10)
-
-        Button {
-          text: ctrl.camPreviewOn ? "■ CLOSE CAMERA PREVIEW" : "◎ PREVIEW & ARRANGE CAMERA"
-          selected: ctrl.camPreviewOn
-          foreground: ctrl.contentForeground
-          fontFamily: ctrl.contentFontFamily
-          onClicked: ctrl.toggleCamPreview()
-        }
+        width: parent.width
+        text: ctrl.camPreviewOn ? "■ CLOSE CAMERA PREVIEW" : "◎ PREVIEW & ARRANGE CAMERA"
+        selected: ctrl.camPreviewOn
+        foreground: ctrl.contentForeground
+        fontFamily: ctrl.contentFontFamily
+        fontSize: Style.font.bodySmall
+        horizontalPadding: Style.space(6)
+        verticalPadding: Style.space(4)
+        onClicked: ctrl.toggleCamPreview()
       }
     }
   }
 
   PanelSeparator { foreground: ctrl.contentForeground }
 
-  // Capture settings.
   Column {
     width: parent.width
-    spacing: Style.space(8)
+    spacing: Style.space(6)
 
     PanelSectionHeader {
       text: "CAPTURE"
@@ -186,38 +189,40 @@ Column {
     }
 
     Row {
-      spacing: Style.space(6)
-
+      width: parent.width
+      spacing: Style.space(4)
       Text {
         anchors.verticalCenter: parent.verticalCenter
-        width: Style.space(64)
+        width: Style.space(52)
         text: "FPS"
         color: ctrl.dim
         font.family: ctrl.contentFontFamily
         font.pixelSize: Style.font.bodySmall
       }
-
       Button {
         text: "30"
         selected: Number(ctrl.cfg.fps) === 30
         foreground: ctrl.contentForeground
         fontFamily: ctrl.contentFontFamily
+        fontSize: Style.font.bodySmall
+        horizontalPadding: Style.space(6)
+        verticalPadding: Style.space(4)
         onClicked: ctrl.updateGlobal({ fps: 30 })
       }
-
       Button {
         text: "60"
         selected: Number(ctrl.cfg.fps) === 60
         foreground: ctrl.contentForeground
         fontFamily: ctrl.contentFontFamily
+        fontSize: Style.font.bodySmall
+        horizontalPadding: Style.space(6)
+        verticalPadding: Style.space(4)
         onClicked: ctrl.updateGlobal({ fps: 60 })
       }
-
       Text {
         anchors.verticalCenter: parent.verticalCenter
-        text: ctrl.displayHz > 0
-          ? "· display: " + ctrl.displayHz + " Hz"
-          : ""
+        leftPadding: Style.space(4)
+        text: ctrl.displayHz > 0 ? "· " + ctrl.displayHz + " Hz" : ""
         color: ctrl.dim
         font.family: ctrl.contentFontFamily
         font.pixelSize: Style.font.bodySmall
@@ -226,19 +231,18 @@ Column {
 
     Row {
       width: parent.width
-      spacing: Style.space(6)
-
+      spacing: Style.space(4)
       Text {
         anchors.verticalCenter: parent.verticalCenter
-        width: Style.space(64)
+        width: Style.space(52)
         text: "OUTPUT"
         color: ctrl.dim
         font.family: ctrl.contentFontFamily
         font.pixelSize: Style.font.bodySmall
       }
-
       Dropdown {
-        width: parent.width - Style.space(72)
+        width: parent.width - Style.space(56)
+        implicitHeight: Style.spacing.controlHeight
         showLabel: false
         foreground: ctrl.contentForeground
         fontFamily: ctrl.contentFontFamily
@@ -248,27 +252,28 @@ Column {
       }
     }
 
-    Flow {
+    Row {
       width: parent.width
-      spacing: Style.space(6)
-
+      spacing: Style.space(4)
       Text {
-        width: Style.space(64)
+        width: Style.space(52)
         text: "BITRATE"
         color: ctrl.dim
         font.family: ctrl.contentFontFamily
         font.pixelSize: Style.font.bodySmall
+        topPadding: Style.space(6)
       }
-
       Repeater {
         model: ["low", "medium", "high"]
-
         Button {
           required property string modelData
           text: modelData
           selected: String(ctrl.cfg.quality) === modelData
           foreground: ctrl.contentForeground
           fontFamily: ctrl.contentFontFamily
+          fontSize: Style.font.bodySmall
+          horizontalPadding: Style.space(6)
+          verticalPadding: Style.space(4)
           onClicked: ctrl.updateGlobal({ quality: modelData })
         }
       }
@@ -276,6 +281,7 @@ Column {
 
     Dropdown {
       width: parent.width
+      implicitHeight: Style.spacing.controlHeight
       showLabel: false
       foreground: ctrl.contentForeground
       fontFamily: ctrl.contentFontFamily
@@ -297,19 +303,19 @@ Column {
     }
 
     Row {
-      spacing: Style.space(6)
-
+      width: parent.width
+      spacing: Style.space(4)
       Text {
         anchors.verticalCenter: parent.verticalCenter
-        width: Style.space(64)
+        width: Style.space(52)
         text: "SOURCE"
         color: ctrl.dim
         font.family: ctrl.contentFontFamily
         font.pixelSize: Style.font.bodySmall
       }
-
       Dropdown {
-        width: Style.space(220)
+        width: parent.width - Style.space(56)
+        implicitHeight: Style.spacing.controlHeight
         showLabel: false
         foreground: ctrl.contentForeground
         fontFamily: ctrl.contentFontFamily
@@ -320,7 +326,7 @@ Column {
           opts.push("Focused window")
           if (!["screen", "portal", "focused"].includes(String(ctrl.cfg.capture))
               && ctrl.monitorList.every(function(m) { return m.id !== String(ctrl.cfg.capture) }))
-            opts.push(String(ctrl.cfg.capture)) // preserved custom value
+            opts.push(String(ctrl.cfg.capture))
           return opts
         }
         value: {

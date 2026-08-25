@@ -3,17 +3,15 @@ import qs.Commons
 import qs.Ui
 import ".."
 
-// Page: program monitor with draggable PiP placement.
-// `ctrl` is the owning panel root.
 Column {
   id: previewPage
-
   property var ctrl: null
-
-  spacing: Style.space(8)
+  spacing: Style.space(6)
+  width: parent.width
 
   Monitor {
     width: parent.width
+    implicitHeight: width * 9 / 16
     scene: ctrl.scene
     streaming: ctrl.live
     elapsedText: ctrl.elapsedText
