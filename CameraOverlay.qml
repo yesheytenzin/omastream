@@ -31,8 +31,8 @@ PanelWindow {
   color: "transparent"
 
   margins {
-    right: Math.max(8, Math.round((scrW - implicitWidth) * (Number(panelRoot.cfg.pipXPct) || 72) / 100))
-    bottom: Math.max(8, Math.round((scrH - implicitHeight) * (Number(panelRoot.cfg.pipYPct) || 62) / 100))
+    right: Math.max(8, Math.round((scrW - implicitWidth) * (100 - (Number(panelRoot.cfg.pipXPct) || 72)) / 100))
+    bottom: Math.max(8, Math.round((scrH - implicitHeight) * (100 - (Number(panelRoot.cfg.pipYPct) || 62)) / 100))
   }
 
   // ---- Live sources --------------------------------------------------------
@@ -143,8 +143,10 @@ PanelWindow {
       }
       onReleased: {
         cursorShape = Qt.OpenHandCursor
-        var xp = Math.round(root.margins.right / (scrW - width) * 100)
-        var yp = Math.round(root.margins.bottom / (scrH - height) * 100)
+        var availW = Math.max(1, scrW - width)
+        var availH = Math.max(1, scrH - height)
+        var xp = Math.round(100 - root.margins.right / availW * 100)
+        var yp = Math.round(100 - root.margins.bottom / availH * 100)
         panelRoot.updateGlobal({ pipXPct: xp, pipYPct: yp })
       }
     }

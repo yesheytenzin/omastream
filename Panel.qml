@@ -108,6 +108,16 @@ Panel {
       var b = Number(loaded.videoBitrateKbps) || 6000
       next.quality = b < 5000 ? "low" : (b <= 7000 ? "medium" : "high")
     }
+    if (loaded._pipCoordMigrated !== undefined) next._pipCoordMigrated = loaded._pipCoordMigrated
+    var didMigratePip = !next._pipCoordMigrated && (loaded.pipXPct !== undefined || loaded.pipYPct !== undefined)
+    // One-time migration: old overlay used inverted coordinates (0=right,
+    // 100=left). New code uses 0=left, 100=right for both preview and
+    // overlay so they match. Invert once to keep existing placements.
+    if (didMigratePip) {
+      if (next.pipXPct !== undefined) next.pipXPct = Math.max(0, Math.min(100, 100 - Number(next.pipXPct)))
+      if (next.pipYPct !== undefined) next.pipYPct = Math.max(0, Math.min(100, 100 - Number(next.pipYPct)))
+      next._pipCoordMigrated = true
+    }
     Stream.platforms().forEach(function(p) {
       if (loaded[p.id] && typeof loaded[p.id] === "object") {
         // Any legacy plaintext "key" found here is ignored and dropped on
@@ -124,6 +134,7 @@ Panel {
       }
     })
     cfg = next
+    if (didMigratePip) saveCfg()
   }
 
   property string pendingTwitchKey: ""
