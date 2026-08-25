@@ -489,27 +489,30 @@ Panel {
     var want = root.opened && root.sceneWantsCam && !root.live
                 && root.camSourceArg !== ""
     if (want && !camGrabProc.running) {
-      var cmd = String(cfg.cameraSource) === "url"
-        ? ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-           "-i", root.camSourceArg,
-           "-vf", "fps=2", "-update", "1", "-q:v", "5",
-           "/tmp/omastream-cam.jpg"]
-        : ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-           "-f", "v4l2", "-video_size", "640x480",
-           "-i", root.camSourceArg,
-           "-vf", "fps=2", "-update", "1", "-q:v", "5",
-           "/tmp/omastream-cam.jpg"]
+      // Atomic writes: grab to temp file, rename — readers never see
+      // half-written JPEGs (this was the preview flicker).
+      var cmd = ["bash", "-c",
+        'SRC="' + root.camSourceArg.replace(/"/g, '') + '"; '
+        + (String(cfg.cameraSource) === "url"
+          ? 'FLAGS=""'
+          : 'FLAGS="-f v4l2 -video_size 640x480"') + '; '
+        + 'while true; do '
+        + 'ffmpeg -hide_banner -loglevel error -y $FLAGS -i "$SRC" '
+        + '-vf fps=10 -frames:v 1 -q:v 4 /tmp/.omastream-cam-new.jpg '
+        + '&& mv /tmp/.omastream-cam-new.jpg /tmp/omastream-cam.jpg; '
+        + 'sleep 0.09; done']
       camGrabProc.command = cmd
       camGrabProc.running = true
     } else if (!want && camGrabProc.running) {
       camGrabProc.running = false
+      camKillProc.running = true
     }
     camShotTick.restart()
   }
 
   Timer {
     id: camShotTick
-    interval: 600
+    interval: 150
     repeat: true
     running: camGrabProc.running
     onTriggered: root.camShotSeq++
