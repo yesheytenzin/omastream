@@ -40,7 +40,7 @@ Item {
 
   Timer {
     id: shotTimer
-    interval: 450
+    interval: 33
     repeat: true
     running: root.active && root.scene !== "camera"
     triggeredOnStart: true
